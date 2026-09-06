@@ -36,16 +36,14 @@ type WargaDenganKategori = Warga & {
   kategori: Kategori[];
 };
 
-export default function WargaPage() {
-  const [warga, setWarga] = useState<
-    WargaDenganKategori[]
-  >([]);
+const daftarRT = ["01", "02", "03", "04", "05", "06"];
 
-  const [kategori, setKategori] = useState<Kategori[]>(
-    []
-  );
+export default function WargaPage() {
+  const [warga, setWarga] = useState<WargaDenganKategori[]>([]);
+  const [kategori, setKategori] = useState<Kategori[]>([]);
 
   const [search, setSearch] = useState("");
+  const [filterRT, setFilterRT] = useState<string | null>(null);
   const [filterKategori, setFilterKategori] =
     useState<number | null>(null);
 
@@ -60,11 +58,10 @@ export default function WargaPage() {
     setLoading(true);
     setPesan("");
 
-    const { data: dataWarga, error: wargaError } =
-      await supabase
-        .from("warga")
-        .select("*")
-        .order("nama", { ascending: true });
+    const { data: dataWarga, error: wargaError } = await supabase
+      .from("warga")
+      .select("*")
+      .order("nama", { ascending: true });
 
     if (wargaError) {
       console.error(
@@ -201,6 +198,13 @@ export default function WargaPage() {
     return "-";
   }
 
+  function jumlahRT(rt: string) {
+    return warga.filter(
+      (item) =>
+        String(item.rt).padStart(2, "0") === rt
+    ).length;
+  }
+
   const wargaTersaring = warga.filter((item) => {
     const teksSearch = search
       .toLowerCase()
@@ -213,6 +217,11 @@ export default function WargaPage() {
         .includes(teksSearch) ||
       item.nik.includes(teksSearch);
 
+    const cocokRT =
+      filterRT === null ||
+      String(item.rt).padStart(2, "0") ===
+        filterRT;
+
     const cocokKategori =
       filterKategori === null ||
       item.kategori.some(
@@ -220,7 +229,11 @@ export default function WargaPage() {
           kategoriItem.id === filterKategori
       );
 
-    return cocokSearch && cocokKategori;
+    return (
+      cocokSearch &&
+      cocokRT &&
+      cocokKategori
+    );
   });
 
   return (
@@ -242,16 +255,24 @@ export default function WargaPage() {
       </header>
 
       <div className="mx-auto max-w-xl px-4 py-5">
+
+        {/* TOTAL WARGA */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm text-gray-500">
-                Total warga
+                Total warga RW 16
               </p>
 
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-3xl font-bold text-gray-800">
                 {warga.length}
               </p>
+
+              {filterRT && (
+                <p className="mt-1 text-xs font-semibold text-blue-600">
+                  Menampilkan RT {filterRT}
+                </p>
+              )}
             </div>
 
             <button
@@ -267,6 +288,84 @@ export default function WargaPage() {
           </div>
         </div>
 
+        {/* REKAP RT */}
+        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-700">
+                Rekap Warga per RT
+              </p>
+
+              <p className="mt-1 text-xs text-gray-500">
+                Klik RT untuk melihat datanya
+              </p>
+            </div>
+
+            {filterRT && (
+              <button
+                type="button"
+                onClick={() =>
+                  setFilterRT(null)
+                }
+                className="text-xs font-bold text-blue-600"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {daftarRT.map((rt) => {
+              const aktif = filterRT === rt;
+
+              return (
+                <button
+                  key={rt}
+                  type="button"
+                  onClick={() =>
+                    setFilterRT(
+                      aktif ? null : rt
+                    )
+                  }
+                  className={
+                    "rounded-2xl border p-4 text-left transition " +
+                    (aktif
+                      ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                      : "border-gray-200 bg-gray-50 text-gray-800 hover:border-blue-300")
+                  }
+                >
+                  <p
+                    className={
+                      "text-xs font-semibold " +
+                      (aktif
+                        ? "text-blue-100"
+                        : "text-gray-500")
+                    }
+                  >
+                    RT {rt}
+                  </p>
+
+                  <p className="mt-1 text-2xl font-bold">
+                    {jumlahRT(rt)}
+                  </p>
+
+                  <p
+                    className={
+                      "text-xs " +
+                      (aktif
+                        ? "text-blue-100"
+                        : "text-gray-500")
+                    }
+                  >
+                    warga
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* SEARCH & FILTER */}
         <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
           <label className="mb-2 block text-sm font-semibold text-gray-700">
             Cari Nama / NIK
@@ -278,52 +377,103 @@ export default function WargaPage() {
             onChange={(e) =>
               setSearch(e.target.value)
             }
-            placeholder="🔎 Cari nama atau NIK..."
+            placeholder="Cari nama atau NIK..."
             className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
           />
 
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            <button
-              type="button"
-              onClick={() =>
-                setFilterKategori(null)
-              }
-              className={
-                "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
-                (filterKategori === null
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600")
-              }
-            >
-              SEMUA
-            </button>
+          {/* FILTER RT */}
+          <div className="mt-4">
+            <p className="mb-2 text-sm font-semibold text-gray-700">
+              Filter RT
+            </p>
 
-            {kategori.map((item) => (
+            <div className="flex gap-2 overflow-x-auto pb-1">
               <button
-                key={item.id}
                 type="button"
                 onClick={() =>
-                  setFilterKategori(item.id)
+                  setFilterRT(null)
                 }
                 className={
                   "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
-                  (filterKategori === item.id
+                  (filterRT === null
                     ? "bg-blue-600 text-white"
                     : "bg-gray-100 text-gray-600")
                 }
               >
-                {item.nama}
+                SEMUA RT
               </button>
-            ))}
+
+              {daftarRT.map((rt) => (
+                <button
+                  key={rt}
+                  type="button"
+                  onClick={() =>
+                    setFilterRT(rt)
+                  }
+                  className={
+                    "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
+                    (filterRT === rt
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600")
+                  }
+                >
+                  RT {rt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* FILTER KATEGORI */}
+          <div className="mt-5">
+            <p className="mb-2 text-sm font-semibold text-gray-700">
+              Kategori Warga
+            </p>
+
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setFilterKategori(null)
+                }
+                className={
+                  "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
+                  (filterKategori === null
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600")
+                }
+              >
+                SEMUA
+              </button>
+
+              {kategori.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() =>
+                    setFilterKategori(item.id)
+                  }
+                  className={
+                    "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
+                    (filterKategori === item.id
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600")
+                  }
+                >
+                  {item.nama}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
+        {/* PESAN ERROR */}
         {pesan && (
           <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-semibold text-red-600">
             {pesan}
           </div>
         )}
 
+        {/* DATA */}
         {loading ? (
           <div className="mt-4 rounded-2xl bg-white p-6 text-center shadow-sm">
             <p className="text-sm text-gray-500">
@@ -342,6 +492,14 @@ export default function WargaPage() {
           </div>
         ) : (
           <div className="mt-4 space-y-4">
+            <p className="px-1 text-sm font-semibold text-gray-500">
+              Menampilkan{" "}
+              <span className="text-gray-800">
+                {wargaTersaring.length}
+              </span>{" "}
+              warga
+            </p>
+
             {wargaTersaring.map((item) => {
               const umur = hitungUmur(
                 item.tanggal_lahir
@@ -398,7 +556,8 @@ export default function WargaPage() {
                             key={kategoriItem.id}
                             className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
                           >
-                            🏷️ {kategoriItem.nama}
+                            🏷️{" "}
+                            {kategoriItem.nama}
                           </span>
                         )
                       )}
