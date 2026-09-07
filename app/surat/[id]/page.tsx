@@ -12,6 +12,9 @@ type Surat = {
   rw: string;
   status: string;
   created_at: string;
+  ttd_rt: boolean;
+  ttd_rt_at: string | null;
+  ttd_rt_nama: string | null;
 };
 
 type Warga = {
@@ -33,7 +36,9 @@ export default function DetailSuratPage({
 }) {
   const [surat, setSurat] = useState<DetailSurat | null>(null);
   const [loading, setLoading] = useState(true);
+  const [prosesTtd, setProsesTtd] = useState(false);
   const [pesan, setPesan] = useState("");
+  const [namaTtd, setNamaTtd] = useState("");
 
   useEffect(() => {
     ambilDetail();
@@ -85,6 +90,8 @@ export default function DetailSuratPage({
         ...dataSurat,
         warga: dataWarga,
       });
+
+      setNamaTtd(dataSurat.ttd_rt_nama || "");
     } catch (error) {
       console.error("Gagal mengambil detail surat:", error);
 
@@ -99,6 +106,105 @@ export default function DetailSuratPage({
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function tandaTanganiRT() {
+    if (!surat) return;
+
+    if (!namaTtd.trim()) {
+      setPesan("Nama RT wajib diisi sebelum tanda tangan.");
+      return;
+    }
+
+    setProsesTtd(true);
+    setPesan("");
+
+    try {
+      const waktuTtd = new Date().toISOString();
+
+      const { error } = await supabase
+        .from("surat")
+        .update({
+          ttd_rt: true,
+          ttd_rt_at: waktuTtd,
+          ttd_rt_nama: namaTtd.trim(),
+        })
+        .eq("id", surat.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setSurat({
+        ...surat,
+        ttd_rt: true,
+        ttd_rt_at: waktuTtd,
+        ttd_rt_nama: namaTtd.trim(),
+      });
+
+      setPesan("Surat berhasil ditandatangani RT.");
+    } catch (error) {
+      console.error("Gagal tanda tangan RT:", error);
+
+      if (error && typeof error === "object") {
+        const err = error as {
+          message?: string;
+        };
+
+        setPesan(err.message || "Gagal menyimpan tanda tangan RT.");
+      } else {
+        setPesan(String(error));
+      }
+    } finally {
+      setProsesTtd(false);
+    }
+  }
+
+  async function ajukanKeRW() {
+    if (!surat) return;
+
+    if (!surat.ttd_rt) {
+      setPesan("Surat harus ditandatangani RT terlebih dahulu.");
+      return;
+    }
+
+    setProsesTtd(true);
+    setPesan("");
+
+    try {
+      const { error } = await supabase
+        .from("surat")
+        .update({
+          status: "MENUNGGU_RW",
+        })
+        .eq("id", surat.id)
+        .eq("status", "DRAFT");
+
+      if (error) {
+        throw error;
+      }
+
+      setSurat({
+        ...surat,
+        status: "MENUNGGU_RW",
+      });
+
+      setPesan("Surat berhasil diajukan ke RW.");
+    } catch (error) {
+      console.error("Gagal mengajukan surat:", error);
+
+      if (error && typeof error === "object") {
+        const err = error as {
+          message?: string;
+        };
+
+        setPesan(err.message || "Gagal mengajukan surat ke RW.");
+      } else {
+        setPesan(String(error));
+      }
+    } finally {
+      setProsesTtd(false);
     }
   }
 
@@ -158,6 +264,16 @@ export default function DetailSuratPage({
     });
   }
 
+  function formatTanggalWaktu(tanggal: string) {
+    return new Date(tanggal).toLocaleString("id-ID", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-gray-100">
@@ -172,7 +288,7 @@ export default function DetailSuratPage({
     );
   }
 
-  if (pesan || !surat) {
+  if (pesan && !surat) {
     return (
       <main className="min-h-screen bg-gray-100">
         <div className="mx-auto max-w-xl px-4 py-10">
@@ -182,7 +298,7 @@ export default function DetailSuratPage({
             </h1>
 
             <p className="mt-2 text-sm text-red-600">
-              {pesan || "Data surat tidak tersedia."}
+              {pesan}
             </p>
 
             <button
@@ -198,6 +314,10 @@ export default function DetailSuratPage({
         </div>
       </main>
     );
+  }
+
+  if (!surat) {
+    return null;
   }
 
   return (
@@ -363,15 +483,120 @@ export default function DetailSuratPage({
         </div>
 
         {surat.status === "DRAFT" && (
-          <div className="mt-4 rounded-2xl bg-yellow-50 p-5">
-            <p className="font-bold text-yellow-800">
-              Status Draft
-            </p>
+          <>
+            <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">
+                    Tanda Tangan RT
+                  </h2>
 
-            <p className="mt-1 text-sm leading-5 text-yellow-700">
-              Surat masih dalam tahap penyusunan dan belum
-              dikirim ke RW.
-            </p>
+                  <p className="mt-1 text-sm leading-5 text-gray-500">
+                    Surat harus ditandatangani RT sebelum
+                    dapat diajukan ke RW.
+                  </p>
+                </div>
+
+                <span
+                  className={
+                    surat.ttd_rt
+                      ? "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700"
+                      : "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700"
+                  }
+                >
+                  {surat.ttd_rt ? "Sudah TTD" : "Belum TTD"}
+                </span>
+              </div>
+
+              {!surat.ttd_rt ? (
+                <>
+                  <div className="mt-5">
+                    <label className="text-sm font-semibold text-gray-700">
+                      Nama Ketua RT
+                    </label>
+
+                    <input
+                      type="text"
+                      value={namaTtd}
+                      onChange={(e) => {
+                        setNamaTtd(e.target.value);
+                      }}
+                      placeholder="Masukkan nama Ketua RT"
+                      className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={tandaTanganiRT}
+                    disabled={prosesTtd}
+                    className="mt-4 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {prosesTtd
+                      ? "Menyimpan..."
+                      : "✍️ Tanda Tangani Surat"}
+                  </button>
+                </>
+              ) : (
+                <div className="mt-5 rounded-xl bg-green-50 p-4">
+                  <p className="text-sm font-bold text-green-800">
+                    ✓ Surat telah ditandatangani RT
+                  </p>
+
+                  {surat.ttd_rt_nama && (
+                    <p className="mt-2 text-sm text-green-700">
+                      Atas nama:{" "}
+                      <span className="font-bold">
+                        {surat.ttd_rt_nama}
+                      </span>
+                    </p>
+                  )}
+
+                  {surat.ttd_rt_at && (
+                    <p className="mt-1 text-xs text-green-600">
+                      {formatTanggalWaktu(surat.ttd_rt_at)}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {surat.ttd_rt && (
+              <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-bold text-gray-800">
+                  Pengajuan ke RW
+                </h2>
+
+                <p className="mt-1 text-sm leading-5 text-gray-500">
+                  Setelah TTD RT selesai, surat siap diajukan
+                  untuk diperiksa dan disetujui RW.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={ajukanKeRW}
+                  disabled={prosesTtd}
+                  className="mt-4 w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {prosesTtd
+                    ? "Mengajukan..."
+                    : "🚀 Ajukan ke RW"}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {pesan && (
+          <div
+            className={
+              "mt-4 rounded-2xl p-4 text-sm font-semibold " +
+              (pesan.includes("berhasil")
+                ? "bg-green-50 text-green-700"
+                : "bg-red-50 text-red-700")
+            }
+          >
+            {pesan}
           </div>
         )}
 
@@ -382,8 +607,8 @@ export default function DetailSuratPage({
             </p>
 
             <p className="mt-1 text-sm leading-5 text-blue-700">
-              Surat sudah diajukan dan sedang menunggu
-              pemeriksaan serta persetujuan RW.
+              Surat sudah ditandatangani RT dan diajukan.
+              Sekarang menunggu pemeriksaan serta persetujuan RW.
             </p>
           </div>
         )}

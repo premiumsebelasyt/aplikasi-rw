@@ -169,35 +169,29 @@ export default function BuatSuratPage() {
       }
 
       // 3. Buat surat sebagai DRAFT
-      const { error: suratError } = await supabase.from("surat").insert({
-        warga_id: wargaId,
-        jenis_surat: formData.jenisSurat,
-        keperluan: formData.keperluan.trim(),
-        rt: formData.rt,
-        rw: "16",
-        status: "DRAFT",
-      });
+      const { data: suratBaru, error: suratError } = await supabase
+        .from("surat")
+        .insert({
+          warga_id: wargaId,
+          jenis_surat: formData.jenisSurat,
+          keperluan: formData.keperluan.trim(),
+          rt: formData.rt,
+          rw: "16",
+          status: "DRAFT",
+        })
+        .select("id")
+        .single();
 
       if (suratError) {
         throw suratError;
       }
 
-      // 4. Berhasil
-      setPesan(
-        "Surat berhasil dibuat dan disimpan sebagai DRAFT."
-      );
+      if (!suratBaru?.id) {
+        throw new Error("Surat berhasil dibuat tetapi ID surat tidak ditemukan.");
+      }
 
-      setFormData({
-        jenisSurat: "",
-        nik: "",
-        nama: "",
-        noKK: "",
-        alamat: "",
-        rt: "",
-        keperluan: "",
-      });
-
-      setStatusNik("kosong");
+      // 4. Langsung masuk ke halaman detail surat
+      window.location.href = `/surat/${suratBaru.id}`;
     } catch (error) {
       console.error("Gagal menyimpan surat:", error);
 
