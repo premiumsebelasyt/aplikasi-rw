@@ -43,7 +43,6 @@ export default function ReviewSuratRW({
   useEffect(() => {
     async function ambilData() {
       const { id } = await params;
-
       const suratId = Number(id);
 
       if (!suratId) {
@@ -112,10 +111,11 @@ export default function ReviewSuratRW({
   }
 
   async function setujuiSurat() {
-    if (!surat) return;
+    if (!surat || proses) return;
 
     const yakin = window.confirm(
-      "Yakin ingin menyetujui surat ini?\n\nSetelah disetujui, surat akan masuk ke tahap TTD RW."
+      "Yakin ingin menyetujui surat ini?\n\n" +
+        "Setelah disetujui, surat akan masuk ke tahap TTD RW."
     );
 
     if (!yakin) return;
@@ -133,7 +133,7 @@ export default function ReviewSuratRW({
 
     if (error) {
       console.error(error);
-      setPesan("Gagal menyetujui surat.");
+      setPesan("Gagal menyetujui surat: " + error.message);
       setProses(false);
       return;
     }
@@ -148,7 +148,7 @@ export default function ReviewSuratRW({
   }
 
   async function tolakSurat() {
-    if (!surat) return;
+    if (!surat || proses) return;
 
     const alasan = window.prompt(
       "Masukkan alasan penolakan surat:"
@@ -164,7 +164,9 @@ export default function ReviewSuratRW({
     }
 
     const yakin = window.confirm(
-      `Yakin ingin menolak surat ini?\n\nAlasan:\n${alasanBersih}`
+      "Yakin ingin menolak surat ini?\n\n" +
+        "Alasan penolakan:\n" +
+        alasanBersih
     );
 
     if (!yakin) return;
@@ -182,7 +184,7 @@ export default function ReviewSuratRW({
 
     if (error) {
       console.error(error);
-      setPesan("Gagal menolak surat.");
+      setPesan("Gagal menolak surat: " + error.message);
       setProses(false);
       return;
     }
@@ -192,7 +194,10 @@ export default function ReviewSuratRW({
       status: "DITOLAK",
     });
 
-    setPesan(`Surat ditolak. Alasan: ${alasanBersih}`);
+    setPesan(
+      `Surat ditolak. Alasan: ${alasanBersih}`
+    );
+
     setProses(false);
   }
 
@@ -236,6 +241,9 @@ export default function ReviewSuratRW({
 
   const sudahDisetujui =
     surat.status === "DISETUJUI";
+
+  const sudahDitolak =
+    surat.status === "DITOLAK";
 
   return (
     <main className="min-h-screen bg-gray-100 pb-10">
@@ -441,7 +449,7 @@ export default function ReviewSuratRW({
                 disabled={proses}
                 className="rounded-xl bg-red-600 px-4 py-3 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                ❌ Tolak
+                {proses ? "Memproses..." : "❌ Tolak"}
               </button>
 
               <button
@@ -450,7 +458,7 @@ export default function ReviewSuratRW({
                 disabled={proses}
                 className="rounded-xl bg-green-600 px-4 py-3 font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                ✅ Setujui
+                {proses ? "Memproses..." : "✅ Setujui"}
               </button>
             </div>
           </div>
@@ -476,6 +484,19 @@ export default function ReviewSuratRW({
                 TTD RW → PDF Resmi → Terbit
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Setelah Ditolak */}
+        {sudahDitolak && (
+          <div className="mt-4 rounded-2xl bg-red-50 p-5">
+            <h2 className="font-bold text-red-800">
+              Surat Ditolak
+            </h2>
+
+            <p className="mt-2 text-sm text-red-700">
+              Surat ini telah ditolak oleh RW.
+            </p>
           </div>
         )}
 
