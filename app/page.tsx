@@ -134,7 +134,33 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* Data Warga */}
+        {/* Surat Masuk RW */}
+        <Link
+          href="/rw/surat"
+          className="mt-4 block rounded-2xl bg-white p-5 shadow-sm ring-2 ring-blue-100 transition hover:bg-blue-50"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-blue-600">
+                KHUSUS RW / ADMIN
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold text-gray-800">
+                Surat Masuk RW
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Review surat yang diajukan RT
+              </p>
+            </div>
+
+            <span className="text-3xl">
+              📥
+            </span>
+          </div>
+        </Link>
+
+        {/* Wilayah */}
         <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -188,6 +214,7 @@ export default function Home() {
             <span className="text-xl">
               🏠
             </span>
+
             <span className="mt-1">
               Beranda
             </span>
@@ -200,6 +227,7 @@ export default function Home() {
             <span className="text-xl">
               📝
             </span>
+
             <span className="mt-1">
               Surat
             </span>
@@ -212,6 +240,7 @@ export default function Home() {
             <span className="text-xl">
               👥
             </span>
+
             <span className="mt-1">
               Warga
             </span>
@@ -224,6 +253,7 @@ export default function Home() {
             <span className="text-xl">
               ⚙️
             </span>
+
             <span className="mt-1">
               Pengaturan
             </span>
