@@ -16,6 +16,9 @@ type Surat = {
   ttd_rt: boolean;
   ttd_rt_at: string | null;
   ttd_rt_nama: string | null;
+  ttd_rw: boolean;
+  ttd_rw_at: string | null;
+  ttd_rw_nama: string | null;
 };
 
 type Warga = {
@@ -143,7 +146,10 @@ export default function ReviewSuratRW({
       status: "DISETUJUI",
     });
 
-    setPesan("Surat berhasil disetujui. Silakan lanjut ke TTD RW.");
+    setPesan(
+      "Surat berhasil disetujui. Silakan lanjut ke TTD RW."
+    );
+
     setProses(false);
   }
 
@@ -196,6 +202,84 @@ export default function ReviewSuratRW({
 
     setPesan(
       `Surat ditolak. Alasan: ${alasanBersih}`
+    );
+
+    setProses(false);
+  }
+
+  async function tandaTanganiRW() {
+    if (!surat || proses) return;
+
+    if (surat.status !== "DISETUJUI") {
+      window.alert(
+        "Surat harus disetujui terlebih dahulu."
+      );
+      return;
+    }
+
+    if (surat.ttd_rw) {
+      window.alert(
+        "Surat ini sudah ditandatangani oleh RW."
+      );
+      return;
+    }
+
+    const nama = window.prompt(
+      "Masukkan nama Ketua RW yang menandatangani:"
+    );
+
+    if (nama === null) return;
+
+    const namaBersih = nama.trim();
+
+    if (!namaBersih) {
+      window.alert(
+        "Nama Ketua RW wajib diisi."
+      );
+      return;
+    }
+
+    const yakin = window.confirm(
+      "Konfirmasi Tanda Tangan RW\n\n" +
+        `Nama: ${namaBersih}\n\n` +
+        "Yakin ingin menandatangani surat ini?"
+    );
+
+    if (!yakin) return;
+
+    setProses(true);
+    setPesan("");
+
+    const waktuTtd = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("surat")
+      .update({
+        ttd_rw: true,
+        ttd_rw_at: waktuTtd,
+        ttd_rw_nama: namaBersih,
+      })
+      .eq("id", surat.id)
+      .eq("status", "DISETUJUI");
+
+    if (error) {
+      console.error(error);
+      setPesan(
+        "Gagal menyimpan TTD RW: " + error.message
+      );
+      setProses(false);
+      return;
+    }
+
+    setSurat({
+      ...surat,
+      ttd_rw: true,
+      ttd_rw_at: waktuTtd,
+      ttd_rw_nama: namaBersih,
+    });
+
+    setPesan(
+      "TTD RW berhasil disimpan. Surat siap masuk ke tahap PDF resmi."
     );
 
     setProses(false);
@@ -290,6 +374,12 @@ export default function ReviewSuratRW({
             {surat.status === "DITOLAK" && (
               <span className="inline-block rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700">
                 DITOLAK
+              </span>
+            )}
+
+            {surat.status === "TERBIT" && (
+              <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+                TERBIT
               </span>
             )}
           </div>
@@ -424,6 +514,56 @@ export default function ReviewSuratRW({
           )}
         </div>
 
+        {/* TTD RW */}
+        {sudahDisetujui && (
+          <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-bold text-gray-800">
+              Pengesahan RW
+            </h2>
+
+            {surat.ttd_rw ? (
+              <div className="mt-4 rounded-xl bg-green-50 p-4">
+                <p className="font-semibold text-green-700">
+                  ✓ Sudah ditandatangani RW
+                </p>
+
+                <p className="mt-2 text-sm text-gray-700">
+                  Nama: {surat.ttd_rw_nama || "-"}
+                </p>
+
+                {surat.ttd_rw_at && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {formatTanggal(surat.ttd_rw_at)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <div className="mt-4 rounded-xl bg-yellow-50 p-4">
+                  <p className="font-semibold text-yellow-700">
+                    ⏳ Belum ditandatangani RW
+                  </p>
+
+                  <p className="mt-1 text-sm text-gray-600">
+                    Surat sudah disetujui dan menunggu tanda tangan RW.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={tandaTanganiRW}
+                  disabled={proses}
+                  className="mt-4 w-full rounded-xl bg-blue-700 px-4 py-3 font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {proses
+                    ? "Menyimpan TTD..."
+                    : "✍️ Tanda Tangani sebagai RW"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Pesan */}
         {pesan && (
           <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm text-blue-700">
@@ -472,7 +612,7 @@ export default function ReviewSuratRW({
             </h2>
 
             <p className="mt-2 text-sm text-green-700">
-              Surat sudah disetujui oleh RW dan siap masuk ke tahap tanda tangan RW.
+              Surat sudah disetujui oleh RW dan masuk ke proses pengesahan RW.
             </p>
 
             <div className="mt-4 rounded-xl bg-white p-4">
