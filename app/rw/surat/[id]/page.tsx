@@ -1,21 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 type Surat = {
   id: number;
-  warga_id: number;
+  warga_id: number | null;
   jenis_surat: string;
   keperluan: string | null;
-  rt: string;
-  rw: string;
+  rt: string | null;
+  rw: string | null;
   status: string;
   created_at: string;
+
   ttd_rt: boolean;
   ttd_rt_at: string | null;
   ttd_rt_nama: string | null;
+
   ttd_rw: boolean;
   ttd_rw_at: string | null;
   ttd_rw_nama: string | null;
@@ -23,102 +25,105 @@ type Surat = {
 
 type Warga = {
   id: number;
-  nama: string;
   nik: string;
   no_kk: string | null;
+  nama: string;
   alamat: string | null;
+  rt: string | null;
 };
 
-type DetailSurat = Surat & {
-  warga: Warga | null;
-};
+function formatTanggal(tanggal: string | null) {
+  if (!tanggal) return "-";
 
-export default function ReviewSuratRW({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const [surat, setSurat] = useState<DetailSurat | null>(null);
+  return new Date(tanggal).toLocaleString("id-ID", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatStatus(status: string) {
+  switch (status) {
+    case "MENUNGGU_RW":
+      return "Menunggu Persetujuan RW";
+    case "DISETUJUI":
+      return "Disetujui RW";
+    case "DITOLAK":
+      return "Ditolak";
+    case "TERBIT":
+      return "Terbit";
+    default:
+      return status;
+  }
+}
+
+export default function DetailSuratRW() {
+  const params = useParams();
+  const router = useRouter();
+
+  const id = params?.id as string;
+
+  const [surat, setSurat] = useState<Surat | null>(null);
+  const [warga, setWarga] = useState<Warga | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [proses, setProses] = useState(false);
   const [pesan, setPesan] = useState("");
 
   useEffect(() => {
-    async function ambilData() {
-      const { id } = await params;
-      const suratId = Number(id);
+    if (!id) return;
 
-      if (!suratId) {
-        setPesan("ID surat tidak valid.");
-        setLoading(false);
-        return;
-      }
+    async function loadData() {
+      setLoading(true);
+      setPesan("");
 
-      const { data, error } = await supabase
+      const { data: suratData, error: suratError } = await supabase
         .from("surat")
         .select("*")
-        .eq("id", suratId)
-        .maybeSingle();
+        .eq("id", id)
+        .single();
 
-      if (error) {
-        console.error(error);
-        setPesan("Gagal mengambil data surat.");
+      if (suratError) {
+        console.error(suratError);
+        setPesan("Gagal mengambil data surat: " + suratError.message);
         setLoading(false);
         return;
       }
 
-      if (!data) {
-        setPesan("Surat tidak ditemukan.");
-        setLoading(false);
-        return;
-      }
+      setSurat(suratData);
 
-      let warga: Warga | null = null;
-
-      if (data.warga_id) {
-        const { data: wargaData } = await supabase
+      if (suratData.warga_id) {
+        const { data: wargaData, error: wargaError } = await supabase
           .from("warga")
-          .select("id, nama, nik, no_kk, alamat")
-          .eq("id", data.warga_id)
-          .maybeSingle();
+          .select("id, nik, no_kk, nama, alamat, rt")
+          .eq("id", suratData.warga_id)
+          .single();
 
-        warga = wargaData;
+        if (!wargaError) {
+          setWarga(wargaData);
+        }
       }
-
-      setSurat({
-        ...data,
-        warga,
-      });
 
       setLoading(false);
     }
 
-    ambilData();
-  }, [params]);
-
-  function formatJenis(jenis: string) {
-    return jenis
-      .replaceAll("_", " ")
-      .toLowerCase()
-      .replace(/\b\w/g, (huruf) => huruf.toUpperCase());
-  }
-
-  function formatTanggal(tanggal: string) {
-    return new Date(tanggal).toLocaleString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
+    loadData();
+  }, [id]);
 
   async function setujuiSurat() {
     if (!surat || proses) return;
 
+    if (surat.status !== "MENUNGGU_RW") {
+      window.alert("Surat ini sudah tidak berada pada tahap menunggu persetujuan RW.");
+      return;
+    }
+
     const yakin = window.confirm(
-      "Yakin ingin menyetujui surat ini?\n\n" +
-        "Setelah disetujui, surat akan masuk ke tahap TTD RW."
+      "Konfirmasi Persetujuan RW\n\n" +
+        "Surat ini akan disetujui dan langsung masuk ke tahap Tanda Tangan RW.\n\n" +
+        "Yakin ingin menyetujui surat ini?"
     );
 
     if (!yakin) return;
@@ -126,28 +131,37 @@ export default function ReviewSuratRW({
     setProses(true);
     setPesan("");
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("surat")
       .update({
         status: "DISETUJUI",
       })
       .eq("id", surat.id)
-      .eq("status", "MENUNGGU_RW");
+      .eq("status", "MENUNGGU_RW")
+      .select("*")
+      .single();
 
     if (error) {
       console.error(error);
-      setPesan("Gagal menyetujui surat: " + error.message);
+
+      setPesan(
+        "Gagal menyetujui surat: " + error.message
+      );
+
       setProses(false);
       return;
     }
 
-    setSurat({
-      ...surat,
-      status: "DISETUJUI",
-    });
+    /*
+     * PENTING:
+     * State langsung diubah menjadi hasil terbaru dari database.
+     * Jadi bagian Pengesahan RW langsung muncul
+     * tanpa reload dan tanpa kembali ke inbox.
+     */
+    setSurat(data);
 
     setPesan(
-      "Surat berhasil disetujui. Silakan lanjut ke TTD RW."
+      "Surat berhasil disetujui. Silakan lanjutkan Tanda Tangan RW di bawah."
     );
 
     setProses(false);
@@ -156,8 +170,13 @@ export default function ReviewSuratRW({
   async function tolakSurat() {
     if (!surat || proses) return;
 
+    if (surat.status !== "MENUNGGU_RW") {
+      window.alert("Surat ini sudah tidak berada pada tahap menunggu persetujuan RW.");
+      return;
+    }
+
     const alasan = window.prompt(
-      "Masukkan alasan penolakan surat:"
+      "Masukkan alasan surat ditolak:"
     );
 
     if (alasan === null) return;
@@ -170,9 +189,9 @@ export default function ReviewSuratRW({
     }
 
     const yakin = window.confirm(
-      "Yakin ingin menolak surat ini?\n\n" +
-        "Alasan penolakan:\n" +
-        alasanBersih
+      "Konfirmasi Penolakan\n\n" +
+        `Alasan: ${alasanBersih}\n\n` +
+        "Yakin ingin menolak surat ini?"
     );
 
     if (!yakin) return;
@@ -180,28 +199,31 @@ export default function ReviewSuratRW({
     setProses(true);
     setPesan("");
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("surat")
       .update({
         status: "DITOLAK",
       })
       .eq("id", surat.id)
-      .eq("status", "MENUNGGU_RW");
+      .eq("status", "MENUNGGU_RW")
+      .select("*")
+      .single();
 
     if (error) {
       console.error(error);
-      setPesan("Gagal menolak surat: " + error.message);
+
+      setPesan(
+        "Gagal menolak surat: " + error.message
+      );
+
       setProses(false);
       return;
     }
 
-    setSurat({
-      ...surat,
-      status: "DITOLAK",
-    });
+    setSurat(data);
 
     setPesan(
-      `Surat ditolak. Alasan: ${alasanBersih}`
+      "Surat berhasil ditolak."
     );
 
     setProses(false);
@@ -252,7 +274,7 @@ export default function ReviewSuratRW({
 
     const waktuTtd = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("surat")
       .update({
         ttd_rw: true,
@@ -260,23 +282,23 @@ export default function ReviewSuratRW({
         ttd_rw_nama: namaBersih,
       })
       .eq("id", surat.id)
-      .eq("status", "DISETUJUI");
+      .eq("status", "DISETUJUI")
+      .select("*")
+      .single();
 
     if (error) {
       console.error(error);
+
       setPesan(
-        "Gagal menyimpan TTD RW: " + error.message
+        "Gagal menyimpan TTD RW: " +
+          error.message
       );
+
       setProses(false);
       return;
     }
 
-    setSurat({
-      ...surat,
-      ttd_rw: true,
-      ttd_rw_at: waktuTtd,
-      ttd_rw_nama: namaBersih,
-    });
+    setSurat(data);
 
     setPesan(
       "TTD RW berhasil disimpan. Surat siap masuk ke tahap PDF resmi."
@@ -287,12 +309,10 @@ export default function ReviewSuratRW({
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-100 p-5">
-        <div className="mx-auto max-w-xl">
-          <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
-            <p className="text-gray-500">
-              Memuat detail surat...
-            </p>
+      <main className="min-h-screen bg-slate-50 p-4">
+        <div className="mx-auto max-w-3xl">
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            Memuat detail surat...
           </div>
         </div>
       </main>
@@ -301,26 +321,32 @@ export default function ReviewSuratRW({
 
   if (!surat) {
     return (
-      <main className="min-h-screen bg-gray-100 p-5">
-        <div className="mx-auto max-w-xl">
-          <Link
-            href="/rw/surat"
-            className="mb-4 inline-block text-sm font-semibold text-blue-600"
-          >
-            ← Kembali ke Surat Masuk RW
-          </Link>
-
+      <main className="min-h-screen bg-slate-50 p-4">
+        <div className="mx-auto max-w-3xl">
           <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <p className="font-semibold text-red-600">
-              {pesan || "Surat tidak ditemukan."}
-            </p>
+            <h1 className="text-xl font-bold text-slate-900">
+              Surat tidak ditemukan
+            </h1>
+
+            {pesan && (
+              <p className="mt-3 text-sm text-red-600">
+                {pesan}
+              </p>
+            )}
+
+            <button
+              onClick={() => router.push("/rw/surat")}
+              className="mt-5 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Kembali ke Surat Masuk
+            </button>
           </div>
         </div>
       </main>
     );
   }
 
-  const masihMenunggu =
+  const menungguRW =
     surat.status === "MENUNGGU_RW";
 
   const sudahDisetujui =
@@ -329,309 +355,293 @@ export default function ReviewSuratRW({
   const sudahDitolak =
     surat.status === "DITOLAK";
 
+  const sudahTerbit =
+    surat.status === "TERBIT";
+
   return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      {/* Header */}
-      <header className="bg-blue-700 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <Link
-            href="/rw/surat"
-            className="text-sm text-blue-100"
+    <main className="min-h-screen bg-slate-50 px-4 py-6">
+      <div className="mx-auto max-w-3xl space-y-4">
+
+        {/* HEADER */}
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <button
+            onClick={() => router.push("/rw/surat")}
+            className="mb-4 text-sm font-semibold text-slate-600"
           >
             ← Surat Masuk RW
-          </Link>
+          </button>
 
-          <h1 className="mt-3 text-2xl font-bold">
-            Review Surat
-          </h1>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Detail Surat
+              </p>
 
-          <p className="mt-1 text-sm text-blue-100">
-            Pemeriksaan surat yang diajukan RT
-          </p>
+              <h1 className="mt-1 text-2xl font-bold text-slate-900">
+                {surat.jenis_surat}
+              </h1>
+            </div>
+
+            <div>
+              <span
+                className={`inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${
+                  menungguRW
+                    ? "bg-amber-100 text-amber-800"
+                    : sudahDisetujui
+                    ? "bg-emerald-100 text-emerald-800"
+                    : sudahDitolak
+                    ? "bg-red-100 text-red-800"
+                    : sudahTerbit
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {formatStatus(surat.status)}
+              </span>
+            </div>
+          </div>
         </div>
-      </header>
 
-      <div className="mx-auto max-w-xl px-4 py-5">
-        {/* Status */}
+        {/* PESAN */}
+        {pesan && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            {pesan}
+          </div>
+        )}
+
+        {/* DATA PEMOHON */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">
-            Status Surat
-          </p>
-
-          <div className="mt-2">
-            {surat.status === "MENUNGGU_RW" && (
-              <span className="inline-block rounded-full bg-yellow-100 px-3 py-1 text-sm font-semibold text-yellow-700">
-                MENUNGGU REVIEW RW
-              </span>
-            )}
-
-            {surat.status === "DISETUJUI" && (
-              <span className="inline-block rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">
-                DISETUJUI
-              </span>
-            )}
-
-            {surat.status === "DITOLAK" && (
-              <span className="inline-block rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700">
-                DITOLAK
-              </span>
-            )}
-
-            {surat.status === "TERBIT" && (
-              <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
-                TERBIT
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Informasi Surat */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800">
-            Informasi Surat
-          </h2>
-
-          <div className="mt-4 space-y-4">
-            <div>
-              <p className="text-xs text-gray-500">
-                Jenis Surat
-              </p>
-
-              <p className="mt-1 font-semibold text-gray-800">
-                {formatJenis(surat.jenis_surat)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">
-                Keperluan
-              </p>
-
-              <p className="mt-1 text-gray-800">
-                {surat.keperluan || "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">
-                Wilayah
-              </p>
-
-              <p className="mt-1 font-semibold text-gray-800">
-                RT {surat.rt} / RW {surat.rw}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-500">
-                Diajukan
-              </p>
-
-              <p className="mt-1 text-gray-800">
-                {formatTanggal(surat.created_at)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Data Warga */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800">
+          <h2 className="text-lg font-bold text-slate-900">
             Data Pemohon
           </h2>
 
-          <div className="mt-4 space-y-4">
-            <div>
-              <p className="text-xs text-gray-500">
-                Nama Lengkap
-              </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
 
-              <p className="mt-1 text-lg font-semibold text-gray-800">
-                {surat.warga?.nama || "-"}
+            <div>
+              <p className="text-xs text-slate-500">
+                Nama
+              </p>
+              <p className="mt-1 font-semibold text-slate-900">
+                {warga?.nama || "-"}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-500">
                 NIK
               </p>
-
-              <p className="mt-1 font-mono text-gray-800">
-                {surat.warga?.nik || "-"}
+              <p className="mt-1 font-semibold text-slate-900">
+                {warga?.nik || "-"}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500">
-                Nomor KK
+              <p className="text-xs text-slate-500">
+                No. KK
               </p>
-
-              <p className="mt-1 font-mono text-gray-800">
-                {surat.warga?.no_kk || "-"}
+              <p className="mt-1 font-semibold text-slate-900">
+                {warga?.no_kk || "-"}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-500">
+                RT / RW
+              </p>
+              <p className="mt-1 font-semibold text-slate-900">
+                RT {surat.rt || warga?.rt || "-"} / RW{" "}
+                {surat.rw || "16"}
+              </p>
+            </div>
+
+            <div className="sm:col-span-2">
+              <p className="text-xs text-slate-500">
                 Alamat
               </p>
-
-              <p className="mt-1 text-gray-800">
-                {surat.warga?.alamat || "-"}
+              <p className="mt-1 font-semibold text-slate-900">
+                {warga?.alamat || "-"}
               </p>
             </div>
+
+          </div>
+        </div>
+
+        {/* DETAIL SURAT */}
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">
+            Detail Permohonan
+          </h2>
+
+          <div className="mt-4">
+            <p className="text-xs text-slate-500">
+              Keperluan
+            </p>
+
+            <div className="mt-2 rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+              {surat.keperluan || "-"}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs text-slate-500">
+              Diajukan
+            </p>
+
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              {formatTanggal(surat.created_at)}
+            </p>
           </div>
         </div>
 
         {/* TTD RT */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800">
-            Pengesahan RT
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">
+            Tanda Tangan RT
           </h2>
 
           {surat.ttd_rt ? (
-            <div className="mt-4 rounded-xl bg-green-50 p-4">
-              <p className="font-semibold text-green-700">
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="font-bold text-emerald-800">
                 ✓ Sudah ditandatangani RT
               </p>
 
-              <p className="mt-2 text-sm text-gray-700">
-                Nama: {surat.ttd_rt_nama || "-"}
+              <p className="mt-2 text-sm text-slate-700">
+                Nama:{" "}
+                <span className="font-semibold">
+                  {surat.ttd_rt_nama || "-"}
+                </span>
               </p>
 
-              {surat.ttd_rt_at && (
-                <p className="mt-1 text-xs text-gray-500">
-                  {formatTanggal(surat.ttd_rt_at)}
-                </p>
-              )}
+              <p className="mt-1 text-sm text-slate-600">
+                Waktu: {formatTanggal(surat.ttd_rt_at)}
+              </p>
             </div>
           ) : (
-            <div className="mt-4 rounded-xl bg-red-50 p-4">
-              <p className="font-semibold text-red-700">
-                ✕ Belum ditandatangani RT
-              </p>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              Surat belum ditandatangani RT.
             </div>
           )}
         </div>
 
-        {/* TTD RW */}
-        {sudahDisetujui && (
-          <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-800">
-              Pengesahan RW
+        {/* KEPUTUSAN RW */}
+        {menungguRW && (
+          <div className="rounded-2xl border-2 border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900">
+              Pemeriksaan RW
             </h2>
 
-            {surat.ttd_rw ? (
-              <div className="mt-4 rounded-xl bg-green-50 p-4">
-                <p className="font-semibold text-green-700">
-                  ✓ Sudah ditandatangani RW
-                </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Periksa data surat sebelum memberikan keputusan.
+            </p>
 
-                <p className="mt-2 text-sm text-gray-700">
-                  Nama: {surat.ttd_rw_nama || "-"}
-                </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={tolakSurat}
+                disabled={proses}
+                className="rounded-xl border-2 border-red-200 bg-white px-4 py-4 font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                ❌ Tolak
+              </button>
 
-                {surat.ttd_rw_at && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    {formatTanggal(surat.ttd_rw_at)}
-                  </p>
-                )}
+              <button
+                onClick={setujuiSurat}
+                disabled={proses}
+                className="rounded-xl bg-emerald-600 px-4 py-4 font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {proses
+                  ? "Memproses..."
+                  : "✅ Setujui Surat"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* PENGESAHAN RW - LANGSUNG MUNCUL SETELAH SETUJUI */}
+        {sudahDisetujui && (
+          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">
+                ✍️
               </div>
-            ) : (
+
               <div>
-                <div className="mt-4 rounded-xl bg-yellow-50 p-4">
-                  <p className="font-semibold text-yellow-700">
-                    ⏳ Belum ditandatangani RW
+                <h2 className="text-lg font-bold text-slate-900">
+                  Pengesahan RW
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-600">
+                  Surat telah disetujui oleh RW.
+                  Lanjutkan dengan tanda tangan RW
+                  untuk mengesahkan surat.
+                </p>
+              </div>
+            </div>
+
+            {!surat.ttd_rw ? (
+              <div className="mt-5">
+                <div className="rounded-xl bg-amber-50 p-4">
+                  <p className="font-bold text-amber-800">
+                    ⏳ Menunggu Tanda Tangan RW
                   </p>
 
-                  <p className="mt-1 text-sm text-gray-600">
-                    Surat sudah disetujui dan menunggu tanda tangan RW.
+                  <p className="mt-1 text-sm text-amber-700">
+                    Surat sudah disetujui dan siap
+                    ditandatangani.
                   </p>
                 </div>
 
                 <button
-                  type="button"
                   onClick={tandaTanganiRW}
                   disabled={proses}
-                  className="mt-4 w-full rounded-xl bg-blue-700 px-4 py-3 font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-4 font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
                 >
                   {proses
                     ? "Menyimpan TTD..."
                     : "✍️ Tanda Tangani sebagai RW"}
                 </button>
               </div>
+            ) : (
+              <div className="mt-5">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="font-bold text-emerald-800">
+                    ✓ Surat sudah ditandatangani RW
+                  </p>
+
+                  <div className="mt-3 space-y-1 text-sm text-slate-700">
+                    <p>
+                      Nama Ketua RW:{" "}
+                      <span className="font-semibold">
+                        {surat.ttd_rw_nama || "-"}
+                      </span>
+                    </p>
+
+                    <p>
+                      Waktu TTD:{" "}
+                      {formatTanggal(surat.ttd_rw_at)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl bg-blue-50 p-4">
+                  <p className="font-bold text-blue-800">
+                    📄 Siap masuk tahap PDF resmi
+                  </p>
+
+                  <p className="mt-1 text-sm text-blue-700">
+                    Tanda tangan RT dan RW sudah
+                    lengkap.
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        {/* Pesan */}
-        {pesan && (
-          <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm text-blue-700">
-            {pesan}
-          </div>
-        )}
-
-        {/* Action RW */}
-        {masihMenunggu && (
-          <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-800">
-              Keputusan RW
-            </h2>
-
-            <p className="mt-1 text-sm text-gray-500">
-              Periksa data pemohon dan isi surat sebelum mengambil keputusan.
-            </p>
-
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={tolakSurat}
-                disabled={proses}
-                className="rounded-xl bg-red-600 px-4 py-3 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {proses ? "Memproses..." : "❌ Tolak"}
-              </button>
-
-              <button
-                type="button"
-                onClick={setujuiSurat}
-                disabled={proses}
-                className="rounded-xl bg-green-600 px-4 py-3 font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {proses ? "Memproses..." : "✅ Setujui"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Setelah Disetujui */}
-        {sudahDisetujui && (
-          <div className="mt-4 rounded-2xl bg-green-50 p-5">
-            <h2 className="font-bold text-green-800">
-              Surat Disetujui
-            </h2>
-
-            <p className="mt-2 text-sm text-green-700">
-              Surat sudah disetujui oleh RW dan masuk ke proses pengesahan RW.
-            </p>
-
-            <div className="mt-4 rounded-xl bg-white p-4">
-              <p className="text-sm font-semibold text-gray-800">
-                Tahap berikutnya
-              </p>
-
-              <p className="mt-1 text-sm text-gray-500">
-                TTD RW → PDF Resmi → Terbit
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Setelah Ditolak */}
+        {/* DITOLAK */}
         {sudahDitolak && (
-          <div className="mt-4 rounded-2xl bg-red-50 p-5">
-            <h2 className="font-bold text-red-800">
-              Surat Ditolak
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
+            <h2 className="text-lg font-bold text-red-800">
+              ❌ Surat Ditolak
             </h2>
 
             <p className="mt-2 text-sm text-red-700">
@@ -640,13 +650,89 @@ export default function ReviewSuratRW({
           </div>
         )}
 
-        {/* Kembali */}
-        <Link
-          href="/rw/surat"
-          className="mt-5 block rounded-xl border border-gray-300 bg-white px-4 py-3 text-center text-sm font-semibold text-gray-700 shadow-sm"
-        >
-          ← Kembali ke Surat Masuk RW
-        </Link>
+        {/* TERBIT */}
+        {sudahTerbit && (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <h2 className="text-lg font-bold text-blue-800">
+              📄 Surat Telah Terbit
+            </h2>
+
+            <p className="mt-2 text-sm text-blue-700">
+              Surat resmi telah diterbitkan.
+            </p>
+          </div>
+        )}
+
+        {/* ALUR */}
+        <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm">
+          <h2 className="text-lg font-bold">
+            Alur Surat
+          </h2>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <span
+              className={`rounded-full px-3 py-1.5 ${
+                surat.status !== "DRAFT"
+                  ? "bg-emerald-600"
+                  : "bg-slate-700"
+              }`}
+            >
+              ✓ DRAFT
+            </span>
+
+            <span>→</span>
+
+            <span
+              className={`rounded-full px-3 py-1.5 ${
+                surat.ttd_rt
+                  ? "bg-emerald-600"
+                  : "bg-slate-700"
+              }`}
+            >
+              {surat.ttd_rt ? "✓" : "○"} TTD RT
+            </span>
+
+            <span>→</span>
+
+            <span
+              className={`rounded-full px-3 py-1.5 ${
+                sudahDisetujui || surat.ttd_rw
+                  ? "bg-emerald-600"
+                  : "bg-slate-700"
+              }`}
+            >
+              {sudahDisetujui || surat.ttd_rw
+                ? "✓"
+                : "○"}{" "}
+              ACC RW
+            </span>
+
+            <span>→</span>
+
+            <span
+              className={`rounded-full px-3 py-1.5 ${
+                surat.ttd_rw
+                  ? "bg-emerald-600"
+                  : "bg-slate-700"
+              }`}
+            >
+              {surat.ttd_rw ? "✓" : "○"} TTD RW
+            </span>
+
+            <span>→</span>
+
+            <span
+              className={`rounded-full px-3 py-1.5 ${
+                sudahTerbit
+                  ? "bg-emerald-600"
+                  : "bg-slate-700"
+              }`}
+            >
+              {sudahTerbit ? "✓" : "○"} PDF RESMI
+            </span>
+          </div>
+        </div>
+
       </div>
     </main>
   );
