@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
@@ -17,10 +21,12 @@ type Surat = {
   ttd_rt: boolean;
   ttd_rt_at: string | null;
   ttd_rt_nama: string | null;
+  ttd_rt_gambar: string | null;
 
   ttd_rw: boolean;
   ttd_rw_at: string | null;
   ttd_rw_nama: string | null;
+  ttd_rw_gambar: string | null;
 };
 
 type Warga = {
@@ -46,6 +52,8 @@ function formatTanggal(tanggal: string | null) {
 
 function formatStatus(status: string) {
   switch (status) {
+    case "DRAFT":
+      return "Draft";
     case "MENUNGGU_RW":
       return "Menunggu Persetujuan RW";
     case "DISETUJUI":
@@ -65,12 +73,18 @@ export default function DetailSuratRW() {
 
   const id = params?.id as string;
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const hasSignatureRef = useRef(false);
+
   const [surat, setSurat] = useState<Surat | null>(null);
   const [warga, setWarga] = useState<Warga | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [proses, setProses] = useState(false);
   const [pesan, setPesan] = useState("");
+
+  const [namaRW, setNamaRW] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -79,15 +93,21 @@ export default function DetailSuratRW() {
       setLoading(true);
       setPesan("");
 
-      const { data: suratData, error: suratError } = await supabase
-        .from("surat")
-        .select("*")
-        .eq("id", id)
-        .single();
+      const { data: suratData, error: suratError } =
+        await supabase
+          .from("surat")
+          .select("*")
+          .eq("id", id)
+          .single();
 
       if (suratError) {
         console.error(suratError);
-        setPesan("Gagal mengambil data surat: " + suratError.message);
+
+        setPesan(
+          "Gagal mengambil data surat: " +
+            suratError.message
+        );
+
         setLoading(false);
         return;
       }
@@ -95,15 +115,22 @@ export default function DetailSuratRW() {
       setSurat(suratData);
 
       if (suratData.warga_id) {
-        const { data: wargaData, error: wargaError } = await supabase
-          .from("warga")
-          .select("id, nik, no_kk, nama, alamat, rt")
-          .eq("id", suratData.warga_id)
-          .single();
+        const { data: wargaData, error: wargaError } =
+          await supabase
+            .from("warga")
+            .select(
+              "id, nik, no_kk, nama, alamat, rt"
+            )
+            .eq("id", suratData.warga_id)
+            .single();
 
         if (!wargaError) {
           setWarga(wargaData);
         }
+      }
+
+      if (suratData.ttd_rw_nama) {
+        setNamaRW(suratData.ttd_rw_nama);
       }
 
       setLoading(false);
@@ -116,7 +143,9 @@ export default function DetailSuratRW() {
     if (!surat || proses) return;
 
     if (surat.status !== "MENUNGGU_RW") {
-      window.alert("Surat ini sudah tidak berada pada tahap menunggu persetujuan RW.");
+      window.alert(
+        "Surat ini sudah tidak berada pada tahap menunggu persetujuan RW."
+      );
       return;
     }
 
@@ -145,19 +174,14 @@ export default function DetailSuratRW() {
       console.error(error);
 
       setPesan(
-        "Gagal menyetujui surat: " + error.message
+        "Gagal menyetujui surat: " +
+          error.message
       );
 
       setProses(false);
       return;
     }
 
-    /*
-     * PENTING:
-     * State langsung diubah menjadi hasil terbaru dari database.
-     * Jadi bagian Pengesahan RW langsung muncul
-     * tanpa reload dan tanpa kembali ke inbox.
-     */
     setSurat(data);
 
     setPesan(
@@ -165,13 +189,24 @@ export default function DetailSuratRW() {
     );
 
     setProses(false);
+
+    setTimeout(() => {
+      document
+        .getElementById("pengesahan-rw")
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+    }, 100);
   }
 
   async function tolakSurat() {
     if (!surat || proses) return;
 
     if (surat.status !== "MENUNGGU_RW") {
-      window.alert("Surat ini sudah tidak berada pada tahap menunggu persetujuan RW.");
+      window.alert(
+        "Surat ini sudah tidak berada pada tahap menunggu persetujuan RW."
+      );
       return;
     }
 
@@ -184,7 +219,9 @@ export default function DetailSuratRW() {
     const alasanBersih = alasan.trim();
 
     if (!alasanBersih) {
-      window.alert("Alasan penolakan wajib diisi.");
+      window.alert(
+        "Alasan penolakan wajib diisi."
+      );
       return;
     }
 
@@ -213,7 +250,8 @@ export default function DetailSuratRW() {
       console.error(error);
 
       setPesan(
-        "Gagal menolak surat: " + error.message
+        "Gagal menolak surat: " +
+          error.message
       );
 
       setProses(false);
@@ -222,11 +260,158 @@ export default function DetailSuratRW() {
 
     setSurat(data);
 
-    setPesan(
-      "Surat berhasil ditolak."
-    );
+    setPesan("Surat berhasil ditolak.");
 
     setProses(false);
+  }
+
+  function setupCanvas(canvas: HTMLCanvasElement) {
+    const rect = canvas.getBoundingClientRect();
+
+    const dpr =
+      typeof window !== "undefined"
+        ? window.devicePixelRatio || 1
+        : 1;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = 220 * dpr;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.scale(dpr, dpr);
+
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#111827";
+  }
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    setupCanvas(canvasRef.current);
+
+    function handleResize() {
+      if (!canvasRef.current) return;
+
+      setupCanvas(canvasRef.current);
+      hasSignatureRef.current = false;
+    }
+
+    window.addEventListener(
+      "resize",
+      handleResize
+    );
+
+    return () => {
+      window.removeEventListener(
+        "resize",
+        handleResize
+      );
+    };
+  }, [surat?.status]);
+
+  function getCanvasPosition(
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) {
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }
+
+  function mulaiGambar(
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) {
+    if (surat?.ttd_rw) return;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    drawingRef.current = true;
+
+    canvas.setPointerCapture(event.pointerId);
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPosition(event);
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+
+    hasSignatureRef.current = true;
+  }
+
+  function gambar(
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) {
+    if (
+      !drawingRef.current ||
+      surat?.ttd_rw
+    ) {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPosition(event);
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  function selesaiGambar(
+    event: React.PointerEvent<HTMLCanvasElement>
+  ) {
+    drawingRef.current = false;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    try {
+      canvas.releasePointerCapture(
+        event.pointerId
+      );
+    } catch {}
+  }
+
+  function hapusTandaTangan() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.clearRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    hasSignatureRef.current = false;
   }
 
   async function tandaTanganiRW() {
@@ -246,13 +431,7 @@ export default function DetailSuratRW() {
       return;
     }
 
-    const nama = window.prompt(
-      "Masukkan nama Ketua RW yang menandatangani:"
-    );
-
-    if (nama === null) return;
-
-    const namaBersih = nama.trim();
+    const namaBersih = namaRW.trim();
 
     if (!namaBersih) {
       window.alert(
@@ -261,10 +440,31 @@ export default function DetailSuratRW() {
       return;
     }
 
+    if (!hasSignatureRef.current) {
+      window.alert(
+        "Tanda tangan belum dibuat.\n\nSilakan gambar tanda tangan pada kotak terlebih dahulu."
+      );
+      return;
+    }
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      window.alert(
+        "Canvas tanda tangan tidak ditemukan."
+      );
+      return;
+    }
+
+    const gambarTtd = canvas.toDataURL(
+      "image/png"
+    );
+
     const yakin = window.confirm(
       "Konfirmasi Tanda Tangan RW\n\n" +
-        `Nama: ${namaBersih}\n\n` +
-        "Yakin ingin menandatangani surat ini?"
+        `Nama Ketua RW: ${namaBersih}\n\n` +
+        "Tanda tangan akan disimpan sebagai gambar dan menjadi bagian dari surat resmi.\n\n" +
+        "Yakin ingin menyimpan TTD RW?"
     );
 
     if (!yakin) return;
@@ -280,6 +480,7 @@ export default function DetailSuratRW() {
         ttd_rw: true,
         ttd_rw_at: waktuTtd,
         ttd_rw_nama: namaBersih,
+        ttd_rw_gambar: gambarTtd,
       })
       .eq("id", surat.id)
       .eq("status", "DISETUJUI")
@@ -301,7 +502,7 @@ export default function DetailSuratRW() {
     setSurat(data);
 
     setPesan(
-      "TTD RW berhasil disimpan. Surat siap masuk ke tahap PDF resmi."
+      "TTD RW berhasil disimpan. Tanda tangan asli sudah tersimpan dan siap digunakan pada PDF resmi."
     );
 
     setProses(false);
@@ -335,7 +536,9 @@ export default function DetailSuratRW() {
             )}
 
             <button
-              onClick={() => router.push("/rw/surat")}
+              onClick={() =>
+                router.push("/rw/surat")
+              }
               className="mt-5 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
             >
               Kembali ke Surat Masuk
@@ -365,7 +568,9 @@ export default function DetailSuratRW() {
         {/* HEADER */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <button
-            onClick={() => router.push("/rw/surat")}
+            onClick={() =>
+              router.push("/rw/surat")
+            }
             className="mb-4 text-sm font-semibold text-slate-600"
           >
             ← Surat Masuk RW
@@ -396,7 +601,9 @@ export default function DetailSuratRW() {
                     : "bg-slate-100 text-slate-700"
                 }`}
               >
-                {formatStatus(surat.status)}
+                {formatStatus(
+                  surat.status
+                )}
               </span>
             </div>
           </div>
@@ -416,11 +623,11 @@ export default function DetailSuratRW() {
           </h2>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-
             <div>
               <p className="text-xs text-slate-500">
                 Nama
               </p>
+
               <p className="mt-1 font-semibold text-slate-900">
                 {warga?.nama || "-"}
               </p>
@@ -430,6 +637,7 @@ export default function DetailSuratRW() {
               <p className="text-xs text-slate-500">
                 NIK
               </p>
+
               <p className="mt-1 font-semibold text-slate-900">
                 {warga?.nik || "-"}
               </p>
@@ -439,6 +647,7 @@ export default function DetailSuratRW() {
               <p className="text-xs text-slate-500">
                 No. KK
               </p>
+
               <p className="mt-1 font-semibold text-slate-900">
                 {warga?.no_kk || "-"}
               </p>
@@ -448,9 +657,12 @@ export default function DetailSuratRW() {
               <p className="text-xs text-slate-500">
                 RT / RW
               </p>
+
               <p className="mt-1 font-semibold text-slate-900">
-                RT {surat.rt || warga?.rt || "-"} / RW{" "}
-                {surat.rw || "16"}
+                RT {surat.rt ||
+                  warga?.rt ||
+                  "-"}{" "}
+                / RW {surat.rw || "16"}
               </p>
             </div>
 
@@ -458,11 +670,11 @@ export default function DetailSuratRW() {
               <p className="text-xs text-slate-500">
                 Alamat
               </p>
+
               <p className="mt-1 font-semibold text-slate-900">
                 {warga?.alamat || "-"}
               </p>
             </div>
-
           </div>
         </div>
 
@@ -488,7 +700,9 @@ export default function DetailSuratRW() {
             </p>
 
             <p className="mt-1 text-sm font-semibold text-slate-900">
-              {formatTanggal(surat.created_at)}
+              {formatTanggal(
+                surat.created_at
+              )}
             </p>
           </div>
         </div>
@@ -505,15 +719,35 @@ export default function DetailSuratRW() {
                 ✓ Sudah ditandatangani RT
               </p>
 
+              {surat.ttd_rt_gambar && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="mb-2 text-xs font-semibold text-slate-500">
+                    Tanda tangan
+                  </p>
+
+                  <img
+                    src={
+                      surat.ttd_rt_gambar
+                    }
+                    alt="Tanda tangan RT"
+                    className="h-32 w-full object-contain"
+                  />
+                </div>
+              )}
+
               <p className="mt-2 text-sm text-slate-700">
                 Nama:{" "}
                 <span className="font-semibold">
-                  {surat.ttd_rt_nama || "-"}
+                  {surat.ttd_rt_nama ||
+                    "-"}
                 </span>
               </p>
 
               <p className="mt-1 text-sm text-slate-600">
-                Waktu: {formatTanggal(surat.ttd_rt_at)}
+                Waktu:{" "}
+                {formatTanggal(
+                  surat.ttd_rt_at
+                )}
               </p>
             </div>
           ) : (
@@ -531,7 +765,8 @@ export default function DetailSuratRW() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-600">
-              Periksa data surat sebelum memberikan keputusan.
+              Periksa data surat sebelum
+              memberikan keputusan.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -556,9 +791,12 @@ export default function DetailSuratRW() {
           </div>
         )}
 
-        {/* PENGESAHAN RW - LANGSUNG MUNCUL SETELAH SETUJUI */}
+        {/* PENGESAHAN RW */}
         {sudahDisetujui && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-5 shadow-sm">
+          <div
+            id="pengesahan-rw"
+            className="rounded-2xl border-2 border-emerald-200 bg-white p-5 shadow-sm"
+          >
             <div className="flex items-start gap-3">
               <div className="text-2xl">
                 ✍️
@@ -571,53 +809,139 @@ export default function DetailSuratRW() {
 
                 <p className="mt-1 text-sm text-slate-600">
                   Surat telah disetujui oleh RW.
-                  Lanjutkan dengan tanda tangan RW
-                  untuk mengesahkan surat.
+                  Silakan bubuhkan tanda tangan
+                  pada area di bawah.
                 </p>
               </div>
             </div>
 
             {!surat.ttd_rw ? (
               <div className="mt-5">
-                <div className="rounded-xl bg-amber-50 p-4">
-                  <p className="font-bold text-amber-800">
-                    ⏳ Menunggu Tanda Tangan RW
-                  </p>
 
-                  <p className="mt-1 text-sm text-amber-700">
-                    Surat sudah disetujui dan siap
-                    ditandatangani.
-                  </p>
+                {/* CANVAS TTD */}
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-800">
+                      Tanda Tangan Ketua RW
+                    </p>
+
+                    <span className="text-xs text-slate-500">
+                      Gunakan jari / mouse / stylus
+                    </span>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border-2 border-dashed border-slate-300 bg-white">
+                    <canvas
+                      ref={canvasRef}
+                      className="block h-[220px] w-full touch-none"
+                      onPointerDown={
+                        mulaiGambar
+                      }
+                      onPointerMove={
+                        gambar
+                      }
+                      onPointerUp={
+                        selesaiGambar
+                      }
+                      onPointerCancel={
+                        selesaiGambar
+                      }
+                      onPointerLeave={
+                        selesaiGambar
+                      }
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={
+                      hapusTandaTangan
+                    }
+                    disabled={proses}
+                    className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    🧹 Hapus / Ulangi
+                  </button>
                 </div>
 
+                {/* NAMA RW */}
+                <div className="mt-5">
+                  <label className="text-sm font-bold text-slate-800">
+                    Nama Ketua RW
+                  </label>
+
+                  <input
+                    type="text"
+                    value={namaRW}
+                    onChange={(e) =>
+                      setNamaRW(
+                        e.target.value
+                      )
+                    }
+                    placeholder="Masukkan nama Ketua RW"
+                    disabled={proses}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100"
+                  />
+                </div>
+
+                {/* SIMPAN */}
                 <button
-                  onClick={tandaTanganiRW}
+                  onClick={
+                    tandaTanganiRW
+                  }
                   disabled={proses}
-                  className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-4 font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-4 font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
                 >
                   {proses
                     ? "Menyimpan TTD..."
-                    : "✍️ Tanda Tangani sebagai RW"}
+                    : "💾 Simpan Tanda Tangan RW"}
                 </button>
+
+                <p className="mt-3 text-center text-xs leading-5 text-slate-500">
+                  Tanda tangan dan nama wajib
+                  diisi sebelum disimpan.
+                </p>
               </div>
             ) : (
               <div className="mt-5">
+
+                {/* TTD SUDAH TERSIMPAN */}
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <p className="font-bold text-emerald-800">
-                    ✓ Surat sudah ditandatangani RW
+                    ✓ Surat sudah
+                    ditandatangani RW
                   </p>
+
+                  {surat.ttd_rw_gambar && (
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                      <p className="mb-2 text-xs font-semibold text-slate-500">
+                        Tanda tangan Ketua RW
+                      </p>
+
+                      <img
+                        src={
+                          surat.ttd_rw_gambar
+                        }
+                        alt="Tanda tangan Ketua RW"
+                        className="h-40 w-full object-contain"
+                      />
+                    </div>
+                  )}
 
                   <div className="mt-3 space-y-1 text-sm text-slate-700">
                     <p>
                       Nama Ketua RW:{" "}
                       <span className="font-semibold">
-                        {surat.ttd_rw_nama || "-"}
+                        {surat.ttd_rw_nama ||
+                          "-"}
                       </span>
                     </p>
 
                     <p>
                       Waktu TTD:{" "}
-                      {formatTanggal(surat.ttd_rw_at)}
+                      {formatTanggal(
+                        surat.ttd_rw_at
+                      )}
                     </p>
                   </div>
                 </div>
@@ -696,12 +1020,14 @@ export default function DetailSuratRW() {
 
             <span
               className={`rounded-full px-3 py-1.5 ${
-                sudahDisetujui || surat.ttd_rw
+                sudahDisetujui ||
+                surat.ttd_rw
                   ? "bg-emerald-600"
                   : "bg-slate-700"
               }`}
             >
-              {sudahDisetujui || surat.ttd_rw
+              {sudahDisetujui ||
+              surat.ttd_rw
                 ? "✓"
                 : "○"}{" "}
               ACC RW
@@ -732,7 +1058,6 @@ export default function DetailSuratRW() {
             </span>
           </div>
         </div>
-
       </div>
     </main>
   );

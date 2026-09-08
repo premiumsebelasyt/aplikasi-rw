@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 type Surat = {
@@ -12,9 +18,16 @@ type Surat = {
   rw: string;
   status: string;
   created_at: string;
+
   ttd_rt: boolean;
   ttd_rt_at: string | null;
   ttd_rt_nama: string | null;
+  ttd_rt_gambar: string | null;
+
+  ttd_rw: boolean;
+  ttd_rw_at: string | null;
+  ttd_rw_nama: string | null;
+  ttd_rw_gambar: string | null;
 };
 
 type Warga = {
@@ -34,11 +47,17 @@ export default function DetailSuratPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const router = useRouter();
+
   const [surat, setSurat] = useState<DetailSurat | null>(null);
   const [loading, setLoading] = useState(true);
   const [prosesTtd, setProsesTtd] = useState(false);
   const [pesan, setPesan] = useState("");
   const [namaTtd, setNamaTtd] = useState("");
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const hasSignatureRef = useRef(false);
 
   useEffect(() => {
     ambilDetail();
@@ -109,11 +128,189 @@ export default function DetailSuratPage({
     }
   }
 
+  function setupCanvas(canvas: HTMLCanvasElement) {
+    const rect = canvas.getBoundingClientRect();
+
+    const dpr =
+      typeof window !== "undefined"
+        ? window.devicePixelRatio || 1
+        : 1;
+
+    const width = rect.width;
+    const height = 220;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#111827";
+  }
+
+  useEffect(() => {
+    if (!surat) return;
+
+    if (surat.status !== "DRAFT") return;
+
+    if (surat.ttd_rt) return;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    setupCanvas(canvas);
+
+    const handleResize = () => {
+      /*
+       * Jangan reset canvas kalau user sedang menggambar.
+       * Untuk MVP ini canvas hanya disiapkan ulang ketika
+       * ukuran layar berubah.
+       */
+      if (!drawingRef.current && !hasSignatureRef.current) {
+        setupCanvas(canvas);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [surat]);
+
+  function getCanvasPosition(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      return {
+        x: 0,
+        y: 0,
+      };
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }
+
+  function mulaiGambar(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    if (surat?.ttd_rt) return;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    drawingRef.current = true;
+
+    canvas.setPointerCapture(event.pointerId);
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPosition(event);
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+
+    hasSignatureRef.current = true;
+  }
+
+  function gambar(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    if (!drawingRef.current) return;
+
+    if (surat?.ttd_rt) return;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPosition(event);
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  function selesaiGambar(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    drawingRef.current = false;
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    try {
+      canvas.releasePointerCapture(event.pointerId);
+    } catch {}
+  }
+
+  function hapusTandaTangan() {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) return;
+
+    ctx.clearRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    hasSignatureRef.current = false;
+
+    setupCanvas(canvas);
+  }
+
   async function tandaTanganiRT() {
     if (!surat) return;
 
-    if (!namaTtd.trim()) {
-      setPesan("Nama RT wajib diisi sebelum tanda tangan.");
+    const namaBersih = namaTtd.trim();
+
+    if (!namaBersih) {
+      setPesan(
+        "Nama Ketua RT wajib diisi sebelum tanda tangan."
+      );
+      return;
+    }
+
+    const canvas = canvasRef.current;
+
+    if (!canvas) {
+      setPesan(
+        "Kotak tanda tangan belum siap. Silakan coba lagi."
+      );
+      return;
+    }
+
+    if (!hasSignatureRef.current) {
+      setPesan(
+        "Tanda tangan belum dibuat. Silakan gambar tanda tangan pada kotak terlebih dahulu."
+      );
       return;
     }
 
@@ -121,16 +318,27 @@ export default function DetailSuratPage({
     setPesan("");
 
     try {
+      /*
+       * Canvas disimpan sebagai PNG.
+       * Background canvas dibiarkan transparan sehingga
+       * nantinya bisa langsung dipakai untuk PDF resmi.
+       */
+      const gambarTtd = canvas.toDataURL("image/png");
+
       const waktuTtd = new Date().toISOString();
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("surat")
         .update({
           ttd_rt: true,
           ttd_rt_at: waktuTtd,
-          ttd_rt_nama: namaTtd.trim(),
+          ttd_rt_nama: namaBersih,
+          ttd_rt_gambar: gambarTtd,
         })
-        .eq("id", surat.id);
+        .eq("id", surat.id)
+        .eq("status", "DRAFT")
+        .select("*")
+        .single();
 
       if (error) {
         throw error;
@@ -140,19 +348,29 @@ export default function DetailSuratPage({
         ...surat,
         ttd_rt: true,
         ttd_rt_at: waktuTtd,
-        ttd_rt_nama: namaTtd.trim(),
+        ttd_rt_nama: namaBersih,
+        ttd_rt_gambar:
+          data?.ttd_rt_gambar || gambarTtd,
       });
 
-      setPesan("Surat berhasil ditandatangani RT.");
+      setPesan(
+        "Surat berhasil ditandatangani RT."
+      );
     } catch (error) {
-      console.error("Gagal tanda tangan RT:", error);
+      console.error(
+        "Gagal tanda tangan RT:",
+        error
+      );
 
       if (error && typeof error === "object") {
         const err = error as {
           message?: string;
         };
 
-        setPesan(err.message || "Gagal menyimpan tanda tangan RT.");
+        setPesan(
+          err.message ||
+            "Gagal menyimpan tanda tangan RT."
+        );
       } else {
         setPesan(String(error));
       }
@@ -165,7 +383,9 @@ export default function DetailSuratPage({
     if (!surat) return;
 
     if (!surat.ttd_rt) {
-      setPesan("Surat harus ditandatangani RT terlebih dahulu.");
+      setPesan(
+        "Surat harus ditandatangani RT terlebih dahulu."
+      );
       return;
     }
 
@@ -190,16 +410,24 @@ export default function DetailSuratPage({
         status: "MENUNGGU_RW",
       });
 
-      setPesan("Surat berhasil diajukan ke RW.");
+      setPesan(
+        "Surat berhasil diajukan ke RW."
+      );
     } catch (error) {
-      console.error("Gagal mengajukan surat:", error);
+      console.error(
+        "Gagal mengajukan surat:",
+        error
+      );
 
       if (error && typeof error === "object") {
         const err = error as {
           message?: string;
         };
 
-        setPesan(err.message || "Gagal mengajukan surat ke RW.");
+        setPesan(
+          err.message ||
+            "Gagal mengajukan surat ke RW."
+        );
       } else {
         setPesan(String(error));
       }
@@ -212,7 +440,8 @@ export default function DetailSuratPage({
     const daftar: Record<string, string> = {
       "surat-pengantar": "Surat Pengantar",
       "surat-domisili": "Surat Domisili",
-      "surat-keterangan-usaha": "Surat Keterangan Usaha",
+      "surat-keterangan-usaha":
+        "Surat Keterangan Usaha",
       "surat-keterangan-tidak-mampu":
         "Surat Keterangan Tidak Mampu",
       "surat-keterangan-lainnya":
@@ -257,21 +486,27 @@ export default function DetailSuratPage({
   }
 
   function formatTanggal(tanggal: string) {
-    return new Date(tanggal).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
+    return new Date(tanggal).toLocaleDateString(
+      "id-ID",
+      {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }
+    );
   }
 
   function formatTanggalWaktu(tanggal: string) {
-    return new Date(tanggal).toLocaleString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return new Date(tanggal).toLocaleString(
+      "id-ID",
+      {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
   }
 
   if (loading) {
@@ -304,7 +539,8 @@ export default function DetailSuratPage({
             <button
               type="button"
               onClick={() => {
-                window.location.href = "/surat";
+                window.location.href =
+                  "/surat";
               }}
               className="mt-5 w-full rounded-xl bg-gray-800 px-4 py-3 text-sm font-bold text-white"
             >
@@ -327,7 +563,8 @@ export default function DetailSuratPage({
           <button
             type="button"
             onClick={() => {
-              window.location.href = "/surat";
+              window.location.href =
+                "/surat";
             }}
             className="text-sm font-semibold text-blue-100"
           >
@@ -349,6 +586,7 @@ export default function DetailSuratPage({
       </header>
 
       <div className="mx-auto max-w-xl px-4 py-5">
+        {/* INFORMASI UTAMA */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -357,7 +595,9 @@ export default function DetailSuratPage({
               </p>
 
               <h2 className="mt-1 text-xl font-bold text-gray-800">
-                {formatJenisSurat(surat.jenis_surat)}
+                {formatJenisSurat(
+                  surat.jenis_surat
+                )}
               </h2>
             </div>
 
@@ -372,6 +612,7 @@ export default function DetailSuratPage({
           </div>
         </div>
 
+        {/* DATA WARGA */}
         <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="text-lg font-bold text-gray-800">
             Data Warga
@@ -430,6 +671,7 @@ export default function DetailSuratPage({
           )}
         </div>
 
+        {/* INFORMASI SURAT */}
         <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="text-lg font-bold text-gray-800">
             Informasi Surat
@@ -463,7 +705,9 @@ export default function DetailSuratPage({
             </p>
 
             <p className="mt-1 font-semibold text-gray-800">
-              {formatTanggal(surat.created_at)}
+              {formatTanggal(
+                surat.created_at
+              )}
             </p>
           </div>
 
@@ -482,6 +726,10 @@ export default function DetailSuratPage({
           )}
         </div>
 
+        {/* =============================== */}
+        {/* TTD RT */}
+        {/* =============================== */}
+
         {surat.status === "DRAFT" && (
           <>
             <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
@@ -492,8 +740,9 @@ export default function DetailSuratPage({
                   </h2>
 
                   <p className="mt-1 text-sm leading-5 text-gray-500">
-                    Surat harus ditandatangani RT sebelum
-                    dapat diajukan ke RW.
+                    Bubuhkan tanda tangan pada
+                    kotak di bawah menggunakan
+                    jari, stylus, atau mouse.
                   </p>
                 </div>
 
@@ -504,12 +753,70 @@ export default function DetailSuratPage({
                       : "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700"
                   }
                 >
-                  {surat.ttd_rt ? "Sudah TTD" : "Belum TTD"}
+                  {surat.ttd_rt
+                    ? "Sudah TTD"
+                    : "Belum TTD"}
                 </span>
               </div>
 
               {!surat.ttd_rt ? (
                 <>
+                  {/* CANVAS */}
+                  <div className="mt-5">
+                    <div className="mb-2 flex items-center justify-between">
+                      <label className="text-sm font-semibold text-gray-700">
+                        Tanda Tangan
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={
+                          hapusTandaTangan
+                        }
+                        disabled={
+                          prosesTtd
+                        }
+                        className="text-xs font-bold text-red-600"
+                      >
+                        Hapus / Ulangi
+                      </button>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border-2 border-dashed border-gray-300 bg-white">
+                      <canvas
+                        ref={canvasRef}
+                        onPointerDown={
+                          mulaiGambar
+                        }
+                        onPointerMove={
+                          gambar
+                        }
+                        onPointerUp={
+                          selesaiGambar
+                        }
+                        onPointerCancel={
+                          selesaiGambar
+                        }
+                        onPointerLeave={
+                          (event) => {
+                            if (
+                              drawingRef.current
+                            ) {
+                              gambar(event);
+                            }
+                          }
+                        }
+                        className="block h-[220px] w-full touch-none"
+                      />
+                    </div>
+
+                    <p className="mt-2 text-center text-xs text-gray-400">
+                      Gambar tanda tangan di
+                      dalam kotak
+                    </p>
+                  </div>
+
+                  {/* NAMA */}
                   <div className="mt-5">
                     <label className="text-sm font-semibold text-gray-700">
                       Nama Ketua RT
@@ -519,32 +826,51 @@ export default function DetailSuratPage({
                       type="text"
                       value={namaTtd}
                       onChange={(e) => {
-                        setNamaTtd(e.target.value);
+                        setNamaTtd(
+                          e.target.value
+                        );
                       }}
                       placeholder="Masukkan nama Ketua RT"
-                      className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                      disabled={prosesTtd}
+                      className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-blue-500 disabled:bg-gray-100"
                     />
                   </div>
 
+                  {/* SIMPAN TTD */}
                   <button
                     type="button"
-                    onClick={tandaTanganiRT}
+                    onClick={
+                      tandaTanganiRT
+                    }
                     disabled={prosesTtd}
                     className="mt-4 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {prosesTtd
                       ? "Menyimpan..."
-                      : "✍️ Tanda Tangani Surat"}
+                      : "✍️ Simpan Tanda Tangan RT"}
                   </button>
                 </>
               ) : (
                 <div className="mt-5 rounded-xl bg-green-50 p-4">
                   <p className="text-sm font-bold text-green-800">
-                    ✓ Surat telah ditandatangani RT
+                    ✓ Surat telah
+                    ditandatangani RT
                   </p>
 
+                  {surat.ttd_rt_gambar && (
+                    <div className="mt-4 rounded-xl border border-green-200 bg-white p-3">
+                      <img
+                        src={
+                          surat.ttd_rt_gambar
+                        }
+                        alt="Tanda tangan RT"
+                        className="h-32 w-full object-contain"
+                      />
+                    </div>
+                  )}
+
                   {surat.ttd_rt_nama && (
-                    <p className="mt-2 text-sm text-green-700">
+                    <p className="mt-3 text-sm text-green-700">
                       Atas nama:{" "}
                       <span className="font-bold">
                         {surat.ttd_rt_nama}
@@ -554,13 +880,16 @@ export default function DetailSuratPage({
 
                   {surat.ttd_rt_at && (
                     <p className="mt-1 text-xs text-green-600">
-                      {formatTanggalWaktu(surat.ttd_rt_at)}
+                      {formatTanggalWaktu(
+                        surat.ttd_rt_at
+                      )}
                     </p>
                   )}
                 </div>
               )}
             </div>
 
+            {/* AJUKAN KE RW */}
             {surat.ttd_rt && (
               <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
                 <h2 className="text-lg font-bold text-gray-800">
@@ -568,13 +897,16 @@ export default function DetailSuratPage({
                 </h2>
 
                 <p className="mt-1 text-sm leading-5 text-gray-500">
-                  Setelah TTD RT selesai, surat siap diajukan
-                  untuk diperiksa dan disetujui RW.
+                  Setelah TTD RT selesai,
+                  surat siap diajukan untuk
+                  diperiksa dan disetujui RW.
                 </p>
 
                 <button
                   type="button"
-                  onClick={ajukanKeRW}
+                  onClick={
+                    ajukanKeRW
+                  }
                   disabled={prosesTtd}
                   className="mt-4 w-full rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -587,11 +919,14 @@ export default function DetailSuratPage({
           </>
         )}
 
+        {/* PESAN */}
         {pesan && (
           <div
             className={
               "mt-4 rounded-2xl p-4 text-sm font-semibold " +
-              (pesan.includes("berhasil")
+              (pesan.includes(
+                "berhasil"
+              )
                 ? "bg-green-50 text-green-700"
                 : "bg-red-50 text-red-700")
             }
@@ -600,45 +935,117 @@ export default function DetailSuratPage({
           </div>
         )}
 
-        {surat.status === "MENUNGGU_RW" && (
-          <div className="mt-4 rounded-2xl bg-blue-50 p-5">
-            <p className="font-bold text-blue-800">
-              Menunggu Persetujuan RW
-            </p>
+        {/* MENUNGGU RW */}
+        {surat.status ===
+          "MENUNGGU_RW" && (
+          <>
+            <div className="mt-4 rounded-2xl bg-blue-50 p-5">
+              <p className="font-bold text-blue-800">
+                Menunggu Persetujuan RW
+              </p>
 
-            <p className="mt-1 text-sm leading-5 text-blue-700">
-              Surat sudah ditandatangani RT dan diajukan.
-              Sekarang menunggu pemeriksaan serta persetujuan RW.
-            </p>
-          </div>
+              <p className="mt-1 text-sm leading-5 text-blue-700">
+                Surat sudah ditandatangani RT
+                dan diajukan. Sekarang
+                menunggu pemeriksaan serta
+                persetujuan RW.
+              </p>
+            </div>
+
+            {surat.ttd_rt_gambar && (
+              <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-bold text-gray-800">
+                  Tanda Tangan RT
+                </h2>
+
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+                  <img
+                    src={
+                      surat.ttd_rt_gambar
+                    }
+                    alt="Tanda tangan RT"
+                    className="h-32 w-full object-contain"
+                  />
+                </div>
+
+                {surat.ttd_rt_nama && (
+                  <p className="mt-3 text-sm text-gray-600">
+                    Ketua RT:{" "}
+                    <span className="font-bold text-gray-800">
+                      {
+                        surat.ttd_rt_nama
+                      }
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
 
-        {surat.status === "DISETUJUI" && (
-          <div className="mt-4 rounded-2xl bg-green-50 p-5">
-            <p className="font-bold text-green-800">
-              Surat Disetujui
-            </p>
+        {/* DISETUJUI */}
+        {surat.status ===
+          "DISETUJUI" && (
+          <>
+            <div className="mt-4 rounded-2xl bg-green-50 p-5">
+              <p className="font-bold text-green-800">
+                Surat Disetujui
+              </p>
 
-            <p className="mt-1 text-sm leading-5 text-green-700">
-              Surat sudah disetujui oleh RW.
-            </p>
-          </div>
+              <p className="mt-1 text-sm leading-5 text-green-700">
+                Surat sudah disetujui oleh RW.
+              </p>
+            </div>
+
+            {surat.ttd_rt_gambar && (
+              <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-bold text-gray-800">
+                  Tanda Tangan RT
+                </h2>
+
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+                  <img
+                    src={
+                      surat.ttd_rt_gambar
+                    }
+                    alt="Tanda tangan RT"
+                    className="h-32 w-full object-contain"
+                  />
+                </div>
+
+                {surat.ttd_rt_nama && (
+                  <p className="mt-3 text-sm text-gray-600">
+                    Ketua RT:{" "}
+                    <span className="font-bold text-gray-800">
+                      {
+                        surat.ttd_rt_nama
+                      }
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+          </>
         )}
 
-        {surat.status === "DITOLAK" && (
+        {/* DITOLAK */}
+        {surat.status ===
+          "DITOLAK" && (
           <div className="mt-4 rounded-2xl bg-red-50 p-5">
             <p className="font-bold text-red-800">
               Surat Ditolak
             </p>
 
             <p className="mt-1 text-sm leading-5 text-red-700">
-              Surat membutuhkan perbaikan sebelum dapat
-              diajukan kembali.
+              Surat membutuhkan perbaikan
+              sebelum dapat diajukan kembali.
             </p>
           </div>
         )}
 
-        {surat.status === "TERBIT" && (
+        {/* TERBIT */}
+        {surat.status ===
+          "TERBIT" && (
           <div className="mt-4 rounded-2xl bg-blue-50 p-5">
             <p className="font-bold text-blue-800">
               Surat Telah Terbit
