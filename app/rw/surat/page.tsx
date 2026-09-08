@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 type Surat = {
@@ -29,6 +30,8 @@ type SuratDenganWarga = Surat & {
 };
 
 export default function SuratRWPage() {
+  const router = useRouter();
+
   const [surat, setSurat] = useState<SuratDenganWarga[]>([]);
   const [loading, setLoading] = useState(true);
   const [prosesId, setProsesId] = useState<number | null>(null);
@@ -78,7 +81,9 @@ export default function SuratRWPage() {
       const hasil: SuratDenganWarga[] = daftarSurat.map((item) => ({
         ...item,
         warga:
-          daftarWarga.find((warga) => warga.id === item.warga_id) || null,
+          daftarWarga.find(
+            (warga) => warga.id === item.warga_id
+          ) || null,
       }));
 
       setSurat(hasil);
@@ -98,7 +103,9 @@ export default function SuratRWPage() {
 
   async function setujuiSurat(id: number) {
     const yakin = window.confirm(
-      "Setujui surat ini?\n\nStatus surat akan berubah menjadi DISETUJUI."
+      "Setujui surat ini?\n\n" +
+        "Setelah disetujui, Anda akan langsung masuk ke halaman " +
+        "Pengesahan RW untuk melakukan tanda tangan."
     );
 
     if (!yakin) return;
@@ -119,21 +126,27 @@ export default function SuratRWPage() {
         throw error;
       }
 
-      setSurat((daftar) =>
-        daftar.filter((item) => item.id !== id)
-      );
-
-      setPesan("Surat berhasil disetujui oleh RW.");
+      /*
+       * Setelah berhasil disetujui,
+       * langsung masuk ke detail RW.
+       *
+       * Di halaman ini status sudah DISETUJUI,
+       * sehingga bagian Pengesahan RW + TTD RW
+       * otomatis muncul.
+       */
+      router.push(`/rw/surat/${id}`);
     } catch (error) {
       console.error("Gagal menyetujui surat:", error);
 
       if (error && typeof error === "object") {
         const err = error as { message?: string };
-        setPesan(err.message || "Gagal menyetujui surat.");
+        setPesan(
+          err.message || "Gagal menyetujui surat."
+        );
       } else {
         setPesan(String(error));
       }
-    } finally {
+
       setProsesId(null);
     }
   }
@@ -180,7 +193,9 @@ export default function SuratRWPage() {
 
       if (error && typeof error === "object") {
         const err = error as { message?: string };
-        setPesan(err.message || "Gagal menolak surat.");
+        setPesan(
+          err.message || "Gagal menolak surat."
+        );
       } else {
         setPesan(String(error));
       }
@@ -193,7 +208,8 @@ export default function SuratRWPage() {
     const daftar: Record<string, string> = {
       "surat-pengantar": "Surat Pengantar",
       "surat-domisili": "Surat Domisili",
-      "surat-keterangan-usaha": "Surat Keterangan Usaha",
+      "surat-keterangan-usaha":
+        "Surat Keterangan Usaha",
       "surat-keterangan-tidak-mampu":
         "Surat Keterangan Tidak Mampu",
       "surat-keterangan-lainnya":
@@ -234,7 +250,7 @@ export default function SuratRWPage() {
           <button
             type="button"
             onClick={() => {
-              window.location.href = "/";
+              router.push("/");
             }}
             className="text-sm font-semibold text-blue-100"
           >
@@ -274,6 +290,7 @@ export default function SuratRWPage() {
 
             <div className="rounded-2xl bg-yellow-50 px-4 py-3 text-center">
               <p className="text-2xl">📨</p>
+
               <p className="mt-1 text-xs font-bold text-yellow-700">
                 Surat Masuk
               </p>
@@ -303,8 +320,8 @@ export default function SuratRWPage() {
             </h2>
 
             <p className="mt-1 text-sm leading-5 text-gray-500">
-              Saat ini tidak ada surat dari RT yang menunggu
-              persetujuan RW.
+              Saat ini tidak ada surat dari RT yang
+              menunggu persetujuan RW.
             </p>
           </div>
         ) : (
@@ -336,7 +353,8 @@ export default function SuratRWPage() {
                   </p>
 
                   <p className="mt-1 font-bold text-gray-800">
-                    {item.warga?.nama || "Data warga tidak ditemukan"}
+                    {item.warga?.nama ||
+                      "Data warga tidak ditemukan"}
                   </p>
 
                   {item.warga?.nik && (
@@ -368,7 +386,9 @@ export default function SuratRWPage() {
                   </p>
 
                   <p className="mt-1 text-sm font-semibold text-green-700">
-                    ✓ {item.ttd_rt_nama || "Sudah ditandatangani RT"}
+                    ✓{" "}
+                    {item.ttd_rt_nama ||
+                      "Sudah ditandatangani RT"}
                   </p>
 
                   {item.ttd_rt_at && (
@@ -379,13 +399,16 @@ export default function SuratRWPage() {
                 </div>
 
                 <p className="mt-4 text-xs text-gray-400">
-                  Diajukan: {formatTanggal(item.created_at)}
+                  Diajukan:{" "}
+                  {formatTanggal(item.created_at)}
                 </p>
 
                 <button
                   type="button"
                   onClick={() => {
-                    window.location.href = `/surat/${item.id}`;
+                    router.push(
+                      `/rw/surat/${item.id}`
+                    );
                   }}
                   className="mt-4 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-bold text-gray-700"
                 >
