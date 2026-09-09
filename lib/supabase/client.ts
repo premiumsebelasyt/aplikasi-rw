@@ -7,16 +7,22 @@ const supabasePublishableKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
 
 if (!supabaseUrl) {
-  throw new Error(
-    "NEXT_PUBLIC_SUPABASE_URL belum tersedia."
-  );
+  throw new Error("SUPABASE_URL_MISSING");
 }
 
 if (!supabasePublishableKey) {
-  throw new Error(
-    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY belum tersedia."
-  );
+  throw new Error("SUPABASE_KEY_MISSING");
 }
+
+console.log("SUPABASE ENV CHECK", {
+  urlExists: Boolean(supabaseUrl),
+  urlLength: supabaseUrl.length,
+  urlStartsCorrectly: supabaseUrl.startsWith("https://"),
+  keyExists: Boolean(supabasePublishableKey),
+  keyLength: supabasePublishableKey.length,
+  keyStartsCorrectly:
+    supabasePublishableKey.startsWith("sb_publishable_"),
+});
 
 export const supabase = createClient(
   supabaseUrl,
