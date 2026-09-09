@@ -767,32 +767,32 @@ export default function LaporanKasPage() {
         {/* HEADER */}
         <div className="mb-5 flex items-start justify-between gap-3 print:hidden">
           <div>
-            <p className="text-sm font-medium text-slate-500">
+            <p className="text-sm font-semibold text-slate-600">
               Kas RW 16
             </p>
 
-            <h1 className="text-2xl font-bold text-slate-900">
+            <h1 className="text-2xl font-bold text-slate-950">
               Laporan Kas
             </h1>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm font-medium text-slate-600">
               Laporan keuangan RW 16
             </p>
           </div>
 
           <Link
             href="/kas"
-            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200"
+            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-900 shadow-sm ring-1 ring-slate-300"
           >
             ← Kas
           </Link>
         </div>
 
         {/* FILTER */}
-        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 print:hidden">
+        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-300 print:hidden">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label className="mb-2 block text-sm font-bold text-slate-800">
                 Periode Laporan
               </label>
 
@@ -802,7 +802,7 @@ export default function LaporanKasPage() {
                 onChange={(e) =>
                   setBulan(e.target.value)
                 }
-                className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-slate-800 outline-none focus:border-slate-500"
+                className="rounded-xl border border-slate-400 bg-white px-3 py-3 font-medium text-slate-900 outline-none focus:border-slate-700"
               />
             </div>
 
@@ -824,7 +824,7 @@ export default function LaporanKasPage() {
                 type="button"
                 onClick={cetakLaporan}
                 disabled={loading}
-                className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-800 transition hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-slate-200 px-5 py-3 font-bold text-slate-900 transition hover:bg-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 🖨️ Print
               </button>
@@ -835,75 +835,75 @@ export default function LaporanKasPage() {
         {/* DOKUMEN */}
         <div
           id="laporan-kas"
-          className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 print:rounded-none print:p-0 print:shadow-none print:ring-0"
+          className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-300 print:rounded-none print:p-0 print:shadow-none print:ring-0"
         >
 
           {/* IDENTITAS */}
-          <header className="border-b-2 border-slate-900 pb-4 text-center">
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+          <header className="border-b-2 border-slate-950 pb-4 text-center">
+            <p className="text-sm font-bold uppercase tracking-wide text-slate-700">
               Laporan Keuangan
             </p>
 
-            <h1 className="mt-1 text-2xl font-bold text-slate-900">
+            <h1 className="mt-1 text-2xl font-bold text-slate-950">
               RW 16 NUANSA INDAH CIOMAS
             </h1>
 
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm font-semibold text-slate-700">
               Periode {formatBulan(bulan)}
             </p>
           </header>
 
           {loading ? (
-            <div className="py-16 text-center text-sm text-slate-500">
+            <div className="py-16 text-center text-sm font-medium text-slate-600">
               Memuat laporan...
             </div>
           ) : (
             <>
               {/* RINGKASAN */}
               <section className="mt-6">
-                <h2 className="mb-3 text-lg font-bold text-slate-900">
+                <h2 className="mb-3 text-lg font-bold text-slate-950">
                   Ringkasan Kas
                 </h2>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-xl border border-slate-200 p-4">
-                    <p className="text-xs text-slate-500">
+                  <div className="rounded-xl border border-slate-300 p-4">
+                    <p className="text-xs font-bold text-slate-700">
                       Saldo Awal
                     </p>
 
-                    <p className="mt-2 text-lg font-bold text-slate-900">
+                    <p className="mt-2 text-lg font-bold text-slate-950">
                       {formatRupiah(
                         nilaiSaldoAwal
                       )}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-xs text-emerald-700">
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+                    <p className="text-xs font-bold text-emerald-800">
                       Pemasukan
                     </p>
 
-                    <p className="mt-2 text-lg font-bold text-emerald-700">
+                    <p className="mt-2 text-lg font-bold text-emerald-800">
                       {formatRupiah(
                         totalPemasukan
                       )}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                    <p className="text-xs text-red-700">
+                  <div className="rounded-xl border border-red-300 bg-red-50 p-4">
+                    <p className="text-xs font-bold text-red-800">
                       Pengeluaran
                     </p>
 
-                    <p className="mt-2 text-lg font-bold text-red-700">
+                    <p className="mt-2 text-lg font-bold text-red-800">
                       {formatRupiah(
                         totalPengeluaran
                       )}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border-2 border-slate-900 bg-slate-900 p-4 text-white">
-                    <p className="text-xs text-slate-300">
+                  <div className="rounded-xl border-2 border-slate-950 bg-slate-900 p-4 text-white">
+                    <p className="text-xs font-bold text-slate-200">
                       Saldo Akhir
                     </p>
 
@@ -914,7 +914,7 @@ export default function LaporanKasPage() {
                 </div>
 
                 {saldoAwal?.keterangan && (
-                  <p className="mt-3 text-xs text-slate-500">
+                  <p className="mt-3 text-xs font-medium text-slate-600">
                     Keterangan saldo awal:{" "}
                     {saldoAwal.keterangan}
                   </p>
@@ -922,12 +922,12 @@ export default function LaporanKasPage() {
               </section>
 
               {/* RUMUS */}
-              <section className="mt-5 rounded-xl bg-slate-50 p-4 text-center">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <section className="mt-5 rounded-xl border border-slate-300 bg-slate-50 p-4 text-center">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-700">
                   Perhitungan Saldo
                 </p>
 
-                <p className="mt-2 text-sm font-bold text-slate-800">
+                <p className="mt-2 text-sm font-bold text-slate-950">
                   {formatRupiah(
                     nilaiSaldoAwal
                   )}
@@ -946,18 +946,18 @@ export default function LaporanKasPage() {
 
               {/* REKAP KATEGORI */}
               <section className="mt-7">
-                <h2 className="mb-3 text-lg font-bold text-slate-900">
+                <h2 className="mb-3 text-lg font-bold text-slate-950">
                   Rekap Transaksi
                 </h2>
 
                 {rekapKategori.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 p-5 text-center text-sm text-slate-500">
+                  <div className="rounded-xl border border-slate-300 p-5 text-center text-sm font-medium text-slate-600">
                     Belum ada transaksi pada periode ini.
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-100">
+                  <div className="overflow-hidden rounded-xl border border-slate-300">
+                    <table className="w-full text-sm text-slate-950">
+                      <thead className="bg-slate-200 text-slate-950">
                         <tr>
                           <th className="px-4 py-3 text-left font-bold">
                             Jenis
@@ -978,22 +978,22 @@ export default function LaporanKasPage() {
                           (item, index) => (
                             <tr
                               key={`${item.jenis}-${item.nama}-${index}`}
-                              className="border-t border-slate-200"
+                              className="border-t border-slate-300"
                             >
                               <td className="px-4 py-3">
                                 <span
                                   className={`rounded-full px-2.5 py-1 text-xs font-bold ${
                                     item.jenis ===
                                     "PEMASUKAN"
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "bg-red-100 text-red-700"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-red-100 text-red-800"
                                   }`}
                                 >
                                   {item.jenis}
                                 </span>
                               </td>
 
-                              <td className="px-4 py-3 font-medium text-slate-800">
+                              <td className="px-4 py-3 font-semibold text-slate-950">
                                 {item.nama}
                               </td>
 
@@ -1001,8 +1001,8 @@ export default function LaporanKasPage() {
                                 className={`px-4 py-3 text-right font-bold ${
                                   item.jenis ===
                                   "PEMASUKAN"
-                                    ? "text-emerald-600"
-                                    : "text-red-600"
+                                    ? "text-emerald-700"
+                                    : "text-red-700"
                                 }`}
                               >
                                 {formatRupiah(
@@ -1020,40 +1020,40 @@ export default function LaporanKasPage() {
 
               {/* DETAIL TRANSAKSI */}
               <section className="mt-7">
-                <h2 className="mb-3 text-lg font-bold text-slate-900">
+                <h2 className="mb-3 text-lg font-bold text-slate-950">
                   Detail Transaksi
                 </h2>
 
                 {transaksi.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 p-5 text-center text-sm text-slate-500">
+                  <div className="rounded-xl border border-slate-300 p-5 text-center text-sm font-medium text-slate-600">
                     Belum ada transaksi.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="w-full min-w-[700px] text-sm">
-                      <thead className="bg-slate-100">
+                  <div className="overflow-x-auto rounded-xl border border-slate-300">
+                    <table className="w-full min-w-[700px] text-sm text-slate-950">
+                      <thead className="bg-slate-200 text-slate-950">
                         <tr>
-                          <th className="px-3 py-3 text-left">
+                          <th className="px-3 py-3 text-left font-bold">
                             Tanggal
                           </th>
 
-                          <th className="px-3 py-3 text-left">
+                          <th className="px-3 py-3 text-left font-bold">
                             Jenis
                           </th>
 
-                          <th className="px-3 py-3 text-left">
+                          <th className="px-3 py-3 text-left font-bold">
                             Kategori
                           </th>
 
-                          <th className="px-3 py-3 text-left">
+                          <th className="px-3 py-3 text-left font-bold">
                             Keterangan
                           </th>
 
-                          <th className="px-3 py-3 text-left">
+                          <th className="px-3 py-3 text-left font-bold">
                             RT
                           </th>
 
-                          <th className="px-3 py-3 text-right">
+                          <th className="px-3 py-3 text-right font-bold">
                             Nominal
                           </th>
                         </tr>
@@ -1063,9 +1063,9 @@ export default function LaporanKasPage() {
                         {transaksi.map((item) => (
                           <tr
                             key={item.id}
-                            className="border-t border-slate-200"
+                            className="border-t border-slate-300"
                           >
-                            <td className="whitespace-nowrap px-3 py-3">
+                            <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
                               {formatTanggal(
                                 item.tanggal
                               )}
@@ -1076,25 +1076,25 @@ export default function LaporanKasPage() {
                                 className={`rounded-full px-2 py-1 text-xs font-bold ${
                                   item.jenis ===
                                   "PEMASUKAN"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-red-100 text-red-700"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-red-100 text-red-800"
                                 }`}
                               >
                                 {item.jenis}
                               </span>
                             </td>
 
-                            <td className="px-3 py-3">
+                            <td className="px-3 py-3 font-medium text-slate-900">
                               {namaKategori(
                                 item.kategori_id
                               )}
                             </td>
 
-                            <td className="px-3 py-3 font-medium">
+                            <td className="px-3 py-3 font-semibold text-slate-950">
                               {item.keterangan}
                             </td>
 
-                            <td className="px-3 py-3">
+                            <td className="px-3 py-3 font-medium text-slate-900">
                               {item.rt
                                 ? `RT ${item.rt}`
                                 : "-"}
@@ -1104,8 +1104,8 @@ export default function LaporanKasPage() {
                               className={`px-3 py-3 text-right font-bold ${
                                 item.jenis ===
                                 "PEMASUKAN"
-                                  ? "text-emerald-600"
-                                  : "text-red-600"
+                                  ? "text-emerald-700"
+                                  : "text-red-700"
                               }`}
                             >
                               {formatRupiah(
@@ -1122,19 +1122,19 @@ export default function LaporanKasPage() {
 
               {/* IPK */}
               <section className="mt-7">
-                <h2 className="mb-3 text-lg font-bold text-slate-900">
+                <h2 className="mb-3 text-lg font-bold text-slate-950">
                   Rekap IPK Warga
                 </h2>
 
-                <div className="overflow-hidden rounded-xl border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-100">
+                <div className="overflow-hidden rounded-xl border border-slate-300">
+                  <table className="w-full text-sm text-slate-950">
+                    <thead className="bg-slate-200 text-slate-950">
                       <tr>
-                        <th className="px-4 py-3 text-left">
+                        <th className="px-4 py-3 text-left font-bold text-slate-950">
                           RT
                         </th>
 
-                        <th className="px-4 py-3 text-right">
+                        <th className="px-4 py-3 text-right font-bold text-slate-950">
                           IPK Terkumpul
                         </th>
                       </tr>
@@ -1149,13 +1149,13 @@ export default function LaporanKasPage() {
                         return (
                           <tr
                             key={rt}
-                            className="border-t border-slate-200"
+                            className="border-t border-slate-300"
                           >
-                            <td className="px-4 py-3 font-semibold">
+                            <td className="px-4 py-3 font-bold text-slate-950">
                               RT {rt}
                             </td>
 
-                            <td className="px-4 py-3 text-right font-bold">
+                            <td className="px-4 py-3 text-right font-bold text-slate-950">
                               {formatRupiah(
                                 Number(
                                   item?.terkumpul || 0
@@ -1166,12 +1166,12 @@ export default function LaporanKasPage() {
                         );
                       })}
 
-                      <tr className="border-t-2 border-slate-900 bg-slate-50">
-                        <td className="px-4 py-3 font-bold">
+                      <tr className="border-t-2 border-slate-950 bg-slate-100">
+                        <td className="px-4 py-3 font-bold text-slate-950">
                           TOTAL IPK RW 16
                         </td>
 
-                        <td className="px-4 py-3 text-right font-bold">
+                        <td className="px-4 py-3 text-right font-bold text-slate-950">
                           {formatRupiah(totalIpk)}
                         </td>
                       </tr>
@@ -1183,35 +1183,35 @@ export default function LaporanKasPage() {
               {/* TANDA TANGAN */}
               <section className="mt-12 grid grid-cols-2 gap-8 text-center">
                 <div>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm font-semibold text-slate-700">
                     Bendahara RW 16
                   </p>
 
                   <div className="h-24" />
 
                   <div className="mx-auto w-48 border-t border-slate-700 pt-2">
-                    <p className="text-sm font-semibold">
+                    <p className="text-sm font-semibold text-slate-950">
                       ( __________________ )
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm font-semibold text-slate-700">
                     Ketua RW 16
                   </p>
 
                   <div className="h-24" />
 
                   <div className="mx-auto w-48 border-t border-slate-700 pt-2">
-                    <p className="text-sm font-semibold">
+                    <p className="text-sm font-semibold text-slate-950">
                       ( __________________ )
                     </p>
                   </div>
                 </div>
               </section>
 
-              <p className="mt-8 text-center text-xs text-slate-400">
+              <p className="mt-8 text-center text-xs font-medium text-slate-500">
                 Laporan Kas RW 16 — Nuansa Indah Ciomas
               </p>
             </>
