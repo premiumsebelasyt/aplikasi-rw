@@ -955,19 +955,19 @@ export default function LaporanKasPage() {
                     Belum ada transaksi pada periode ini.
                   </div>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-slate-300">
-                    <table className="w-full text-sm text-slate-950">
+                  <div className="overflow-x-auto rounded-xl border border-slate-300">
+                    <table className="w-full min-w-[620px] border-collapse text-sm text-slate-950">
                       <thead className="bg-slate-200 text-slate-950">
                         <tr>
-                          <th className="px-4 py-3 text-left font-bold">
+                          <th className="w-[150px] whitespace-nowrap px-4 py-3 text-left font-bold">
                             Jenis
                           </th>
 
-                          <th className="px-4 py-3 text-left font-bold">
+                          <th className="min-w-[260px] px-4 py-3 text-left font-bold">
                             Kategori
                           </th>
 
-                          <th className="px-4 py-3 text-right font-bold">
+                          <th className="w-[180px] whitespace-nowrap px-4 py-3 text-right font-bold">
                             Jumlah
                           </th>
                         </tr>
@@ -980,9 +980,9 @@ export default function LaporanKasPage() {
                               key={`${item.jenis}-${item.nama}-${index}`}
                               className="border-t border-slate-300"
                             >
-                              <td className="px-4 py-3">
+                              <td className="whitespace-nowrap px-4 py-3">
                                 <span
-                                  className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                                  className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${
                                     item.jenis ===
                                     "PEMASUKAN"
                                       ? "bg-emerald-100 text-emerald-800"
@@ -998,7 +998,7 @@ export default function LaporanKasPage() {
                               </td>
 
                               <td
-                                className={`px-4 py-3 text-right font-bold ${
+                                className={`whitespace-nowrap px-4 py-3 text-right font-bold ${
                                   item.jenis ===
                                   "PEMASUKAN"
                                     ? "text-emerald-700"
@@ -1030,30 +1030,30 @@ export default function LaporanKasPage() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-xl border border-slate-300">
-                    <table className="w-full min-w-[700px] text-sm text-slate-950">
+                    <table className="w-full min-w-[950px] border-collapse text-sm text-slate-950">
                       <thead className="bg-slate-200 text-slate-950">
                         <tr>
-                          <th className="px-3 py-3 text-left font-bold">
+                          <th className="w-[120px] whitespace-nowrap px-3 py-3 text-left font-bold">
                             Tanggal
                           </th>
 
-                          <th className="px-3 py-3 text-left font-bold">
+                          <th className="w-[150px] whitespace-nowrap px-3 py-3 text-left font-bold">
                             Jenis
                           </th>
 
-                          <th className="px-3 py-3 text-left font-bold">
+                          <th className="w-[180px] whitespace-nowrap px-3 py-3 text-left font-bold">
                             Kategori
                           </th>
 
-                          <th className="px-3 py-3 text-left font-bold">
+                          <th className="min-w-[260px] px-3 py-3 text-left font-bold">
                             Keterangan
                           </th>
 
-                          <th className="px-3 py-3 text-left font-bold">
+                          <th className="w-[90px] whitespace-nowrap px-3 py-3 text-left font-bold">
                             RT
                           </th>
 
-                          <th className="px-3 py-3 text-right font-bold">
+                          <th className="w-[190px] whitespace-nowrap px-3 py-3 text-right font-bold">
                             Nominal
                           </th>
                         </tr>
@@ -1071,9 +1071,9 @@ export default function LaporanKasPage() {
                               )}
                             </td>
 
-                            <td className="px-3 py-3">
+                            <td className="whitespace-nowrap px-3 py-3">
                               <span
-                                className={`rounded-full px-2 py-1 text-xs font-bold ${
+                                className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-bold ${
                                   item.jenis ===
                                   "PEMASUKAN"
                                     ? "bg-emerald-100 text-emerald-800"
@@ -1084,24 +1084,24 @@ export default function LaporanKasPage() {
                               </span>
                             </td>
 
-                            <td className="px-3 py-3 font-medium text-slate-900">
+                            <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
                               {namaKategori(
                                 item.kategori_id
                               )}
                             </td>
 
-                            <td className="px-3 py-3 font-semibold text-slate-950">
+                            <td className="min-w-[260px] px-3 py-3 font-semibold text-slate-950">
                               {item.keterangan}
                             </td>
 
-                            <td className="px-3 py-3 font-medium text-slate-900">
+                            <td className="whitespace-nowrap px-3 py-3 font-medium text-slate-900">
                               {item.rt
                                 ? `RT ${item.rt}`
                                 : "-"}
                             </td>
 
                             <td
-                              className={`px-3 py-3 text-right font-bold ${
+                              className={`whitespace-nowrap px-3 py-3 text-right font-bold ${
                                 item.jenis ===
                                 "PEMASUKAN"
                                   ? "text-emerald-700"
@@ -1126,15 +1126,15 @@ export default function LaporanKasPage() {
                   Rekap IPK Warga
                 </h2>
 
-                <div className="overflow-hidden rounded-xl border border-slate-300">
-                  <table className="w-full text-sm text-slate-950">
+                <div className="overflow-x-auto rounded-xl border border-slate-300">
+                  <table className="w-full min-w-[520px] border-collapse text-sm text-slate-950">
                     <thead className="bg-slate-200 text-slate-950">
                       <tr>
-                        <th className="px-4 py-3 text-left font-bold text-slate-950">
+                        <th className="w-[180px] whitespace-nowrap px-4 py-3 text-left font-bold text-slate-950">
                           RT
                         </th>
 
-                        <th className="px-4 py-3 text-right font-bold text-slate-950">
+                        <th className="w-[300px] whitespace-nowrap px-4 py-3 text-right font-bold text-slate-950">
                           IPK Terkumpul
                         </th>
                       </tr>
@@ -1151,11 +1151,11 @@ export default function LaporanKasPage() {
                             key={rt}
                             className="border-t border-slate-300"
                           >
-                            <td className="px-4 py-3 font-bold text-slate-950">
+                            <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-950">
                               RT {rt}
                             </td>
 
-                            <td className="px-4 py-3 text-right font-bold text-slate-950">
+                            <td className="whitespace-nowrap px-4 py-3 text-right font-bold text-slate-950">
                               {formatRupiah(
                                 Number(
                                   item?.terkumpul || 0
@@ -1167,11 +1167,11 @@ export default function LaporanKasPage() {
                       })}
 
                       <tr className="border-t-2 border-slate-950 bg-slate-100">
-                        <td className="px-4 py-3 font-bold text-slate-950">
+                        <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-950">
                           TOTAL IPK RW 16
                         </td>
 
-                        <td className="px-4 py-3 text-right font-bold text-slate-950">
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-bold text-slate-950">
                           {formatRupiah(totalIpk)}
                         </td>
                       </tr>
@@ -1242,6 +1242,15 @@ export default function LaporanKasPage() {
 
           .print\\:hidden {
             display: none !important;
+          }
+
+          #laporan-kas .overflow-x-auto {
+            overflow: visible !important;
+          }
+
+          #laporan-kas table {
+            min-width: 0 !important;
+            width: 100% !important;
           }
         }
       `}</style>
