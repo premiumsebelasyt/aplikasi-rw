@@ -51,6 +51,23 @@ export default function WargaPage() {
   const [pesan, setPesan] = useState("");
 
   useEffect(() => {
+    const parameter = new URLSearchParams(
+      window.location.search
+    );
+
+    const rt = parameter.get("rt");
+
+    if (
+      rt &&
+      daftarRT.includes(
+        String(rt).padStart(2, "0")
+      )
+    ) {
+      setFilterRT(
+        String(rt).padStart(2, "0")
+      );
+    }
+
     ambilData();
   }, []);
 
@@ -58,10 +75,11 @@ export default function WargaPage() {
     setLoading(true);
     setPesan("");
 
-    const { data: dataWarga, error: wargaError } = await supabase
-      .from("warga")
-      .select("*")
-      .order("nama", { ascending: true });
+    const { data: dataWarga, error: wargaError } =
+      await supabase
+        .from("warga")
+        .select("*")
+        .order("nama", { ascending: true });
 
     if (wargaError) {
       console.error(
@@ -78,11 +96,13 @@ export default function WargaPage() {
       return;
     }
 
-    const { data: dataKategori, error: kategoriError } =
-      await supabase
-        .from("kategori_warga")
-        .select("id, nama")
-        .order("nama", { ascending: true });
+    const {
+      data: dataKategori,
+      error: kategoriError,
+    } = await supabase
+      .from("kategori_warga")
+      .select("id, nama")
+      .order("nama", { ascending: true });
 
     if (kategoriError) {
       console.error(

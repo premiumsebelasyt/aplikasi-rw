@@ -134,6 +134,42 @@ export default function Home() {
           </Link>
         </div>
 
+        {/* Kas RW */}
+        <Link
+          href="/kas"
+          className="group mt-4 block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-emerald-100 transition hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-600">
+                KEUANGAN RW
+              </p>
+
+              <h2 className="mt-1 text-lg font-bold text-gray-800">
+                Kas RW
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Kelola pemasukan, pengeluaran, IPK, dan laporan Kas RW 16.
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-2xl">
+              💰
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
+            <span className="text-sm font-semibold text-emerald-600">
+              Buka Kas RW
+            </span>
+
+            <span className="text-gray-400 transition group-hover:translate-x-1">
+              →
+            </span>
+          </div>
+        </Link>
+
         {/* Surat Masuk RW */}
         <Link
           href="/rw/surat"
