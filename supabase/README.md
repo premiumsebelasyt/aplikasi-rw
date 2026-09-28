@@ -27,8 +27,10 @@ where lower(email) = lower('rt-01@rw16.invalid');
 
 Use `RW`, `BENDAHARA`, or `ADMIN` for other staff accounts. Keep RT scope server-controlled; account holders may update their display name, NIK, phone, and password but not their role, login ID, or RT scope.
 
-## Local environment
+## Production configuration
 
-The local `.env.local` supplies the RW Supabase URL, publishable key, and server-only secret key. Never print, commit, or expose the secret key in browser code. Password recovery also requires `NEXT_PUBLIC_SITE_URL` set to the trusted application origin, plus the matching redirect URL configured in Supabase Auth.
+The Vercel project `premiumsebelasyt-2361/aplikasi-rw` is linked to `premiumsebelasyt/aplikasi-rw`; `nic16.vercel.app` is its production domain. Production environment variables are configured for the RW Supabase URL, publishable key, server-only `SUPABASE_SECRET_KEY`, and `NEXT_PUBLIC_SITE_URL=https://nic16.vercel.app`. The server key is stored as a Vercel Secret and must never be committed or exposed in browser code.
 
-Deploy environment variables must be configured for the aplikasi-rw Vercel project separately. This checkout has no Vercel project link or CLI login, so verify the project identity and environment values before deploying.
+Supabase Auth uses `https://nic16.vercel.app` as its Site URL. Its exact redirect allowlist includes `https://nic16.vercel.app/auth/reset-password` and `http://localhost:3000/auth/reset-password` for local testing. The ignored local `.env.local` uses `NEXT_PUBLIC_SITE_URL=http://localhost:3000`.
+
+The Supabase secret key was previously shared in chat. Rotate it in Supabase and update the Production `SUPABASE_SECRET_KEY` in Vercel if that exposure needs to be remediated; redeploy after updating the variable.
