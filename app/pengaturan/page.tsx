@@ -8,13 +8,6 @@ export default function PengaturanPage() {
       <div className="mx-auto max-w-3xl px-4 py-5">
         {/* Header */}
         <div className="mb-6">
-          <Link
-            href="/"
-            className="mb-3 inline-flex items-center text-sm font-medium text-slate-500"
-          >
-            ← Kembali ke Dashboard
-          </Link>
-
           <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">
               SISTEM ADMINISTRASI

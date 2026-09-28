@@ -69,6 +69,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [staffRole, setStaffRole] = useState<string | null>(null);
+  const [rwRequests, setRwRequests] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -87,6 +88,12 @@ export default function Home() {
       if (profile.role !== "WARGA") {
         if (profile.role === "RW" || profile.role === "ADMIN") {
           setStaffRole(profile.role);
+          const { count, error: requestsError } = await supabase
+            .from("surat")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "MENUNGGU_RW");
+          if (!active) return;
+          setRwRequests(requestsError ? null : count ?? 0);
           setLoading(false);
           return;
         }
@@ -225,8 +232,11 @@ export default function Home() {
             <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Khusus RW / Admin</p>
             <div className="mt-1 flex items-center justify-between gap-3">
               <div><h2 className="text-lg font-bold text-slate-900">Surat Masuk RW</h2><p className="mt-1 text-sm text-slate-600">Review surat yang diajukan RT</p></div>
-              <span className="text-2xl" aria-hidden="true">📥</span>
+              <span className="relative text-2xl" aria-hidden="true">📥{rwRequests !== null && rwRequests > 0 && <span className="absolute -right-3 -top-2 grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">{rwRequests > 9 ? "9+" : rwRequests}</span>}</span>
             </div>
+            <p className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${rwRequests === null ? "bg-slate-50 text-slate-500" : rwRequests > 0 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>
+              {rwRequests === null ? "Notifikasi surat belum dapat dimuat" : rwRequests > 0 ? `${rwRequests} permintaan tanda tangan menunggu ditinjau` : "Tidak ada permintaan tanda tangan baru"}
+            </p>
           </Link>
 
           <section className="flex items-center justify-between rounded-2xl bg-white p-5 shadow-sm">

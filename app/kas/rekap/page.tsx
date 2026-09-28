@@ -801,14 +801,6 @@ export default function RekapKasPage() {
 
         {/* NAVIGASI */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-
-          <Link
-            href="/kas"
-            className="rounded-xl bg-white px-4 py-3 text-center text-sm font-bold text-slate-800 shadow-sm ring-1 ring-slate-300"
-          >
-            ← Dashboard
-          </Link>
-
           <Link
             href="/kas/transaksi"
             className="rounded-xl bg-white px-4 py-3 text-center text-sm font-bold text-slate-800 shadow-sm ring-1 ring-slate-300"

@@ -264,17 +264,7 @@ export default function SuratRWPage() {
     <main className="min-h-screen bg-gray-100 pb-10">
       <header className="bg-emerald-900 px-5 py-6 text-white">
         <div className="mx-auto max-w-xl">
-          <button
-            type="button"
-            onClick={() => {
-              router.push("/");
-            }}
-            className="text-sm font-semibold text-emerald-100"
-          >
-            ← Kembali ke Dashboard
-          </button>
-
-          <p className="mt-5 text-sm text-emerald-100">
+          <p className="text-sm text-emerald-100">
             Sistem Administrasi RW 16
           </p>
 

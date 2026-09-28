@@ -375,14 +375,6 @@ export default function RTPage() {
           </div>
         )}
 
-        {/* KEMBALI */}
-        <button
-          type="button"
-          onClick={() => router.push("/")}
-          className="mt-5 w-full rounded-xl bg-gray-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-gray-900"
-        >
-          ← Kembali ke Dashboard
-        </button>
       </div>
     </main>
   );
