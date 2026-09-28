@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
 
 type Kategori = {
   id: number;
@@ -77,9 +78,7 @@ function formatRupiahPdf(value: number) {
 }
 
 export default function LaporanKasPage() {
-  const [bulan, setBulan] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
+  const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [transaksi, setTransaksi] = useState<Transaksi[]>([]);
   const [kategori, setKategori] = useState<Kategori[]>([]);
@@ -89,17 +88,9 @@ export default function LaporanKasPage() {
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
-  const awalBulan = `${bulan}-01`;
+  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
 
-  const akhirBulan = new Date(
-    Number(bulan.slice(0, 4)),
-    Number(bulan.slice(5, 7)),
-    0
-  )
-    .toISOString()
-    .slice(0, 10);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
 
     const [
@@ -181,20 +172,21 @@ export default function LaporanKasPage() {
     setSaldoAwal(saldoRes.data || null);
 
     setLoading(false);
-  }
+  }, [awalBulan, akhirBulan]);
 
   useEffect(() => {
-    loadData();
-  }, [bulan]);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
-  function namaKategori(id: number | null) {
+  const namaKategori = useCallback((id: number | null) => {
     if (!id) return "-";
 
     return (
       kategori.find((item) => item.id === id)?.nama ||
       "-"
     );
-  }
+  }, [kategori]);
 
   const nilaiSaldoAwal = Number(
     saldoAwal?.nominal || 0
@@ -265,7 +257,7 @@ export default function LaporanKasPage() {
     return Array.from(map.values()).sort(
       (a, b) => b.total - a.total
     );
-  }, [transaksi, kategori]);
+  }, [transaksi, namaKategori]);
 
   async function downloadPdf() {
     if (loading) {
@@ -286,6 +278,9 @@ export default function LaporanKasPage() {
         unit: "mm",
         format: "a4",
       });
+      const pdfWithTable = doc as typeof doc & {
+        lastAutoTable?: { finalY?: number };
+      };
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
@@ -385,7 +380,7 @@ export default function LaporanKasPage() {
       });
 
       y =
-        (doc as any).lastAutoTable.finalY + 8;
+        (pdfWithTable.lastAutoTable?.finalY ?? y) + 8;
 
       // =========================
       // RUMUS
@@ -458,7 +453,7 @@ export default function LaporanKasPage() {
       });
 
       y =
-        (doc as any).lastAutoTable.finalY + 8;
+        (pdfWithTable.lastAutoTable?.finalY ?? y) + 8;
 
       // =========================
       // DETAIL TRANSAKSI
@@ -637,7 +632,7 @@ export default function LaporanKasPage() {
       });
 
       y =
-        (doc as any).lastAutoTable.finalY + 18;
+        (pdfWithTable.lastAutoTable?.finalY ?? y) + 18;
 
       // =========================
       // TANDA TANGAN
@@ -701,8 +696,7 @@ export default function LaporanKasPage() {
       // FOOTER
       // =========================
 
-      const totalPages =
-        (doc as any).internal.getNumberOfPages();
+      const totalPages = doc.getNumberOfPages();
 
       for (
         let page = 1;

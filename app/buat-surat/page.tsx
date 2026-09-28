@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { wilayah } from "@/lib/wilayah/data";
 
 type FormData = {
   jenisSurat: string;
@@ -14,7 +14,19 @@ type FormData = {
   keperluan: string;
 };
 
+type FamilyMember = {
+  id: number;
+  nik: string;
+  no_kk: string | null;
+  nama: string;
+  alamat: string | null;
+  rt: string;
+};
+
 export default function BuatSuratPage() {
+  const router = useRouter();
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [loadingFamily, setLoadingFamily] = useState(true);
   const [formData, setFormData] = useState<FormData>({
     jenisSurat: "",
     nik: "",
@@ -26,11 +38,50 @@ export default function BuatSuratPage() {
   });
 
   const [loading, setLoading] = useState(false);
-  const [cekNikLoading, setCekNikLoading] = useState(false);
   const [pesan, setPesan] = useState("");
-  const [statusNik, setStatusNik] = useState<
-    "kosong" | "ditemukan" | "belum"
-  >("kosong");
+
+  useEffect(() => {
+    let active = true;
+    async function loadFamily() {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (!active) return;
+      if (authError || !authData.user) {
+        router.replace("/login");
+        return;
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, no_kk")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (!active) return;
+      if (profile && profile.role !== "WARGA") {
+        router.replace(profile.role === "RT" ? "/rt" : profile.role === "RW" ? "/rw/surat" : profile.role === "BENDAHARA" ? "/kas" : "/login");
+        return;
+      }
+      if (profileError || !profile || !profile.no_kk) {
+        setPesan("Akun ini belum memiliki akses pengajuan surat keluarga.");
+        setLoadingFamily(false);
+        return;
+      }
+      const { data: members, error: familyError } = await supabase
+        .from("warga")
+        .select("id, nik, no_kk, nama, alamat, rt")
+        .eq("no_kk", profile.no_kk)
+        .order("nama", { ascending: true });
+      if (!active) return;
+      if (familyError) {
+        setPesan("Data anggota keluarga belum dapat dimuat.");
+      } else {
+        setFamilyMembers(members ?? []);
+        setFormData((previous) => ({ ...previous, noKK: profile.no_kk }));
+        if (!members?.length) setPesan("Belum ada anggota keluarga pada KK ini.");
+      }
+      setLoadingFamily(false);
+    }
+    void loadFamily();
+    return () => { active = false; };
+  }, [router]);
 
   function handleChange(
     e: React.ChangeEvent<
@@ -44,83 +95,7 @@ export default function BuatSuratPage() {
       [name]: value,
     }));
 
-    if (name === "nik") {
-      setStatusNik("kosong");
-      setPesan("");
-    }
-  }
-
-  async function cekNik() {
-    const nik = formData.nik.trim();
-
-    if (!nik) {
-      setPesan("Masukkan NIK terlebih dahulu.");
-      setStatusNik("kosong");
-      return;
-    }
-
-    if (nik.length !== 16) {
-      setPesan("NIK harus terdiri dari 16 digit.");
-      setStatusNik("kosong");
-      return;
-    }
-
-    setCekNikLoading(true);
-    setPesan("");
-
-    try {
-      const { data, error } = await supabase
-        .from("warga")
-        .select("id, nik, no_kk, nama, alamat, rt")
-        .eq("nik", nik)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (data) {
-        setFormData((prev) => ({
-          ...prev,
-          nik: data.nik,
-          nama: data.nama || "",
-          noKK: data.no_kk || "",
-          alamat: data.alamat || "",
-          rt: data.rt || "",
-        }));
-
-        setStatusNik("ditemukan");
-        setPesan(
-          `Warga ditemukan: ${data.nama}. Data warga otomatis diisi.`
-        );
-      } else {
-        setStatusNik("belum");
-        setPesan(
-          "NIK belum terdaftar. Silakan lengkapi data warga di bawah."
-        );
-      }
-    } catch (error) {
-      console.error("Gagal mengecek NIK:", error);
-
-      if (error && typeof error === "object") {
-        const err = error as {
-          message?: string;
-          code?: string;
-        };
-
-        setPesan(
-          `Gagal mengecek NIK: ${
-            err.message || "Tidak diketahui"
-          }${err.code ? ` | CODE: ${err.code}` : ""}`
-        );
-      } else {
-        setPesan(`Gagal mengecek NIK: ${String(error)}`);
-      }
-
-      setStatusNik("kosong");
-    } finally {
-      setCekNikLoading(false);
-    }
+    if (name === "nik") setPesan("");
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -131,51 +106,42 @@ export default function BuatSuratPage() {
 
     try {
       if (formData.nik.trim().length !== 16) {
-        throw new Error("NIK harus terdiri dari 16 digit.");
+        throw new Error("Pilih anggota keluarga yang akan mengajukan surat.");
       }
 
-      // 1. Cari warga berdasarkan NIK
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) throw new Error("Sesi berakhir. Silakan login kembali.");
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, no_kk")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (profileError || !profile || profile.role !== "WARGA" || !profile.no_kk) {
+        throw new Error("Akun ini tidak memiliki akses pengajuan surat warga.");
+      }
+
+      // Resolve the selected person again against the authenticated KK.
       const { data: wargaLama, error: cariError } = await supabase
         .from("warga")
-        .select("id")
+        .select("id, nik, no_kk, nama, alamat, rt")
         .eq("nik", formData.nik.trim())
+        .eq("no_kk", profile.no_kk)
         .maybeSingle();
 
       if (cariError) {
         throw cariError;
       }
 
-      let wargaId = wargaLama?.id;
-
-      // 2. Kalau warga belum ada, buat data warga baru
-      if (!wargaId) {
-        const { data: wargaBaru, error: wargaError } = await supabase
-          .from("warga")
-          .insert({
-            nik: formData.nik.trim(),
-            no_kk: formData.noKK.trim() || null,
-            nama: formData.nama.trim(),
-            alamat: formData.alamat.trim(),
-            rt: formData.rt,
-          })
-          .select("id")
-          .single();
-
-        if (wargaError) {
-          throw wargaError;
-        }
-
-        wargaId = wargaBaru.id;
-      }
+      if (!wargaLama) throw new Error("Anggota yang dipilih tidak terhubung ke KK akun ini.");
 
       // 3. Buat surat sebagai DRAFT
       const { data: suratBaru, error: suratError } = await supabase
         .from("surat")
         .insert({
-          warga_id: wargaId,
+          warga_id: wargaLama.id,
           jenis_surat: formData.jenisSurat,
           keperluan: formData.keperluan.trim(),
-          rt: formData.rt,
+          rt: wargaLama.rt,
           rw: "16",
           status: "DRAFT",
         })
@@ -191,7 +157,7 @@ export default function BuatSuratPage() {
       }
 
       // 4. Langsung masuk ke halaman detail surat
-      window.location.href = `/surat/${suratBaru.id}`;
+      router.push(`/surat/${suratBaru.id}`);
     } catch (error) {
       console.error("Gagal menyimpan surat:", error);
 
@@ -291,55 +257,42 @@ export default function BuatSuratPage() {
               </h2>
 
               <p className="mt-1 text-xs text-gray-500">
-                Masukkan NIK untuk mengambil data warga yang sudah terdaftar.
+                Pilih salah satu anggota yang terhubung ke akun KK ini. Data identitas diambil dari data warga RW.
               </p>
             </div>
 
             <div className="space-y-4">
-              {/* NIK */}
               <div>
                 <label
                   htmlFor="nik"
                   className="mb-2 block text-sm font-semibold text-gray-700"
                 >
-                  NIK
+                  Anggota keluarga
                 </label>
-
-                <div className="flex gap-2">
-                  <input
-                    id="nik"
-                    name="nik"
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={16}
-                    placeholder="16 digit NIK"
-                    value={formData.nik}
-                    onChange={handleChange}
-                    required
-                    className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-blue-600"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={cekNik}
-                    disabled={cekNikLoading}
-                    className="shrink-0 rounded-xl bg-gray-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {cekNikLoading ? "CEK..." : "CEK NIK"}
-                  </button>
-                </div>
-
-                {statusNik === "ditemukan" && (
-                  <div className="mt-2 rounded-xl bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
-                    ✓ Warga terdaftar. Data otomatis terisi.
-                  </div>
-                )}
-
-                {statusNik === "belum" && (
-                  <div className="mt-2 rounded-xl bg-yellow-50 px-3 py-2 text-xs font-semibold text-yellow-700">
-                    NIK belum terdaftar. Lengkapi data warga di bawah.
-                  </div>
-                )}
+                <select
+                  id="nik"
+                  name="nik"
+                  value={formData.nik}
+                  onChange={(event) => {
+                    const member = familyMembers.find((item) => item.nik === event.target.value);
+                    setFormData((previous) => ({
+                      ...previous,
+                      nik: member?.nik ?? "",
+                      nama: member?.nama ?? "",
+                      noKK: member?.no_kk ?? "",
+                      alamat: member?.alamat ?? "",
+                      rt: member?.rt ?? "",
+                    }));
+                  }}
+                  disabled={loadingFamily || familyMembers.length === 0}
+                  required
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 disabled:bg-gray-100"
+                >
+                  <option value="">{loadingFamily ? "Memuat anggota keluarga…" : "Pilih anggota keluarga"}</option>
+                  {familyMembers.map((member) => (
+                    <option key={member.id} value={member.nik}>{member.nama} · {member.nik}</option>
+                  ))}
+                </select>
               </div>
 
               {/* NAMA */}
@@ -355,11 +308,11 @@ export default function BuatSuratPage() {
                   id="nama"
                   name="nama"
                   type="text"
-                  placeholder="Masukkan nama lengkap"
+                  placeholder="Terisi dari data warga"
                   value={formData.nama}
-                  onChange={handleChange}
+                  readOnly
                   required
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 outline-none"
                 />
               </div>
 
@@ -378,10 +331,10 @@ export default function BuatSuratPage() {
                   type="text"
                   inputMode="numeric"
                   maxLength={16}
-                  placeholder="Masukkan nomor KK"
+                  placeholder="Terisi dari akun KK"
                   value={formData.noKK}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-blue-600"
+                  readOnly
+                  className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 outline-none"
                 />
               </div>
 
@@ -398,11 +351,11 @@ export default function BuatSuratPage() {
                   id="alamat"
                   name="alamat"
                   rows={3}
-                  placeholder="Masukkan alamat lengkap"
+                  placeholder="Terisi dari data warga"
                   value={formData.alamat}
-                  onChange={handleChange}
+                  readOnly
                   required
-                  className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-blue-600"
+                  className="w-full resize-none rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 outline-none"
                 />
               </div>
 
@@ -415,25 +368,15 @@ export default function BuatSuratPage() {
                   RT
                 </label>
 
-                <select
+                <input
                   id="rt"
                   name="rt"
+                  type="text"
                   value={formData.rt}
-                  onChange={handleChange}
+                  readOnly
                   required
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-700 outline-none transition focus:border-blue-600"
-                >
-                  <option value="">Pilih RT</option>
-
-                  {wilayah.rts.map((rt) => (
-                    <option
-                      key={rt.kode}
-                      value={rt.kode}
-                    >
-                      {rt.nama}
-                    </option>
-                  ))}
-                </select>
+                  className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700 outline-none"
+                />
               </div>
             </div>
           </section>
@@ -486,7 +429,7 @@ export default function BuatSuratPage() {
             </p>
 
             <p className="mt-1 text-sm font-semibold text-blue-900">
-              DRAFT
+              Menunggu pemeriksaan dan TTD RT
             </p>
 
             <p className="mt-1 text-xs leading-5 text-blue-700">

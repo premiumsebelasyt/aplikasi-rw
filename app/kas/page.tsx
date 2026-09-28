@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
 
 type Transaksi = {
   id: number;
@@ -65,9 +66,7 @@ function formatTanggal(value: string) {
 }
 
 export default function KasPage() {
-  const [bulan, setBulan] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
+  const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [transaksi, setTransaksi] = useState<Transaksi[]>([]);
   const [kategori, setKategori] = useState<Kategori[]>([]);
@@ -84,17 +83,9 @@ export default function KasPage() {
   const [loading, setLoading] = useState(true);
   const [savingSaldo, setSavingSaldo] = useState(false);
 
-  const awalBulan = `${bulan}-01`;
+  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
 
-  const akhirBulan = new Date(
-    Number(bulan.slice(0, 4)),
-    Number(bulan.slice(5, 7)),
-    0
-  )
-    .toISOString()
-    .slice(0, 10);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
 
     const [
@@ -198,11 +189,12 @@ export default function KasPage() {
     );
 
     setLoading(false);
-  }
+  }, [awalBulan, akhirBulan]);
 
   useEffect(() => {
-    loadData();
-  }, [bulan]);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   async function simpanSaldoAwal() {
     const nominal = Number(

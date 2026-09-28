@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { ambilKategoriWarga } from "@/lib/warga/kategori";
+import { normalizeRtScope } from "@/lib/warga/rt-scope";
+import { ambilDataWarga } from "@/lib/warga/data";
 
 type Warga = {
   id: number;
@@ -27,11 +31,6 @@ type Kategori = {
   nama: string;
 };
 
-type WargaKategori = {
-  warga_id: number;
-  kategori_id: number;
-};
-
 type WargaDenganKategori = Warga & {
   kategori: Kategori[];
 };
@@ -39,6 +38,7 @@ type WargaDenganKategori = Warga & {
 const daftarRT = ["01", "02", "03", "04", "05", "06"];
 
 export default function WargaPage() {
+  const router = useRouter();
   const [warga, setWarga] = useState<WargaDenganKategori[]>([]);
   const [kategori, setKategori] = useState<Kategori[]>([]);
 
@@ -49,100 +49,75 @@ export default function WargaPage() {
 
   const [loading, setLoading] = useState(true);
   const [pesan, setPesan] = useState("");
+  const [roleAkun, setRoleAkun] = useState<string | null>(null);
 
-  useEffect(() => {
-    const parameter = new URLSearchParams(
-      window.location.search
-    );
-
-    const rt = parameter.get("rt");
-
-    if (
-      rt &&
-      daftarRT.includes(
-        String(rt).padStart(2, "0")
-      )
-    ) {
-      setFilterRT(
-        String(rt).padStart(2, "0")
-      );
-    }
-
-    ambilData();
-  }, []);
-
-  async function ambilData() {
+  const ambilData = useCallback(async () => {
     setLoading(true);
     setPesan("");
 
-    const { data: dataWarga, error: wargaError } =
-      await supabase
-        .from("warga")
-        .select("*")
-        .order("nama", { ascending: true });
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      router.replace("/login");
+      return;
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, rt")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileError || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+      setPesan("Akun ini tidak memiliki akses data warga.");
+      setLoading(false);
+      return;
+    }
+    setRoleAkun(profile.role);
 
-    if (wargaError) {
-      console.error(
-        "Gagal mengambil data warga:",
-        wargaError
-      );
+    if (profile.role === "RT") {
+      if (!profile.rt) {
+        setPesan("Akun RT belum memiliki wilayah tugas.");
+        setLoading(false);
+        return;
+      }
+      const rtAkun = normalizeRtScope(profile.rt);
+      if (!rtAkun) {
+        setPesan("Akun RT belum memiliki wilayah tugas yang valid.");
+        setLoading(false);
+        return;
+      }
+      setFilterRT(rtAkun);
+    } else {
+      const parameter = new URLSearchParams(window.location.search);
+      const requestedRT = parameter.get("rt");
+      if (requestedRT && daftarRT.includes(String(requestedRT).padStart(2, "0"))) {
+        setFilterRT(String(requestedRT).padStart(2, "0"));
+      }
+    }
 
-      setPesan(
-        "Gagal mengambil data warga: " +
-          wargaError.message
-      );
-
+    let dataWarga: Warga[];
+    try {
+      const scopedData = await ambilDataWarga<Warga>();
+      dataWarga = scopedData.warga;
+    } catch (wargaError) {
+      setPesan(wargaError instanceof Error ? wargaError.message : "Gagal mengambil data warga.");
       setLoading(false);
       return;
     }
 
-    const {
-      data: dataKategori,
-      error: kategoriError,
-    } = await supabase
-      .from("kategori_warga")
-      .select("id, nama")
-      .order("nama", { ascending: true });
-
-    if (kategoriError) {
-      console.error(
-        "Gagal mengambil kategori:",
-        kategoriError
-      );
-
-      setPesan(
-        "Gagal mengambil kategori: " +
-          kategoriError.message
-      );
-
+    let dataKategori: Kategori[] = [];
+    let dataRelasi: { warga_id: number; kategori_id: number }[] = [];
+    try {
+      const kategoriData = await ambilKategoriWarga();
+      dataKategori = kategoriData.categories;
+      const wargaIds = new Set((dataWarga ?? []).map((item) => item.id));
+      dataRelasi = kategoriData.relations.filter((relation) => wargaIds.has(relation.warga_id));
+    } catch (kategoriError) {
+      setPesan(kategoriError instanceof Error ? kategoriError.message : "Gagal mengambil kategori warga.");
       setLoading(false);
       return;
     }
 
-    const {
-      data: dataRelasi,
-      error: relasiError,
-    } = await supabase
-      .from("warga_kategori")
-      .select("warga_id, kategori_id");
-
-    if (relasiError) {
-      console.error(
-        "Gagal mengambil relasi kategori:",
-        relasiError
-      );
-
-      setPesan(
-        "Gagal mengambil kategori warga: " +
-          relasiError.message
-      );
-
-      setLoading(false);
-      return;
-    }
-
-    const daftarKategori = dataKategori || [];
-    const daftarRelasi = dataRelasi || [];
+    const daftarKategori = dataKategori;
+    const daftarRelasi = dataRelasi;
 
     const hasil: WargaDenganKategori[] = (
       dataWarga || []
@@ -173,7 +148,15 @@ export default function WargaPage() {
     setWarga(hasil);
     setKategori(daftarKategori);
     setLoading(false);
-  }
+  }, [router]);
+
+  useEffect(() => {
+    async function loadAfterMount() {
+      await Promise.resolve();
+      await ambilData();
+    }
+    void loadAfterMount();
+  }, [ambilData]);
 
   function hitungUmur(
     tanggalLahir: string | null
@@ -257,10 +240,10 @@ export default function WargaPage() {
   });
 
   return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-blue-700 px-5 py-6 text-white">
+    <main className="min-h-screen bg-[#f5f7f4] pb-10">
+      <header className="bg-emerald-900 px-5 py-6 text-white">
         <div className="mx-auto max-w-xl">
-          <p className="text-sm text-blue-100">
+          <p className="text-sm text-emerald-100">
             Nuansa Indah Ciomas
           </p>
 
@@ -268,7 +251,7 @@ export default function WargaPage() {
             Data Warga
           </h1>
 
-          <p className="mt-1 text-sm text-blue-100">
+          <p className="mt-1 text-sm text-emerald-100">
             RW 16 • RT 01–06
           </p>
         </div>
@@ -289,7 +272,7 @@ export default function WargaPage() {
               </p>
 
               {filterRT && (
-                <p className="mt-1 text-xs font-semibold text-blue-600">
+                <p className="mt-1 text-xs font-semibold text-emerald-800">
                   Menampilkan RT {filterRT}
                 </p>
               )}
@@ -297,11 +280,8 @@ export default function WargaPage() {
 
             <button
               type="button"
-              onClick={() =>
-                (window.location.href =
-                  "/warga/tambah")
-              }
-              className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+              onClick={() => router.push("/warga/tambah")}
+              className="rounded-xl bg-emerald-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-900"
             >
               + Tambah Warga
             </button>
@@ -309,7 +289,7 @@ export default function WargaPage() {
         </div>
 
         {/* REKAP RT */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+        {roleAkun !== "RT" && <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-gray-700">
@@ -327,7 +307,7 @@ export default function WargaPage() {
                 onClick={() =>
                   setFilterRT(null)
                 }
-                className="text-xs font-bold text-blue-600"
+                className="text-xs font-bold text-emerald-800"
               >
                 Reset
               </button>
@@ -350,15 +330,15 @@ export default function WargaPage() {
                   className={
                     "rounded-2xl border p-4 text-left transition " +
                     (aktif
-                      ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-                      : "border-gray-200 bg-gray-50 text-gray-800 hover:border-blue-300")
+                      ? "border-emerald-800 bg-emerald-800 text-white shadow-sm"
+                      : "border-gray-200 bg-gray-50 text-gray-800 hover:border-emerald-300")
                   }
                 >
                   <p
                     className={
                       "text-xs font-semibold " +
                       (aktif
-                        ? "text-blue-100"
+                        ? "text-emerald-100"
                         : "text-gray-500")
                     }
                   >
@@ -373,7 +353,7 @@ export default function WargaPage() {
                     className={
                       "text-xs " +
                       (aktif
-                        ? "text-blue-100"
+                        ? "text-emerald-100"
                         : "text-gray-500")
                     }
                   >
@@ -383,7 +363,7 @@ export default function WargaPage() {
               );
             })}
           </div>
-        </div>
+        </div>}
 
         {/* SEARCH & FILTER */}
         <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
@@ -398,11 +378,11 @@ export default function WargaPage() {
               setSearch(e.target.value)
             }
             placeholder="Cari nama atau NIK..."
-            className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+            className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
           />
 
           {/* FILTER RT */}
-          <div className="mt-4">
+          {roleAkun !== "RT" && <div className="mt-4">
             <p className="mb-2 text-sm font-semibold text-gray-700">
               Filter RT
             </p>
@@ -416,8 +396,8 @@ export default function WargaPage() {
                 className={
                   "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
                   (filterRT === null
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600")
+                    ? "bg-emerald-800 text-white"
+                    : "bg-[#f5f7f4] text-gray-600")
                 }
               >
                 SEMUA RT
@@ -433,15 +413,15 @@ export default function WargaPage() {
                   className={
                     "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
                     (filterRT === rt
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-600")
+                      ? "bg-emerald-800 text-white"
+                      : "bg-[#f5f7f4] text-gray-600")
                   }
                 >
                   RT {rt}
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* FILTER KATEGORI */}
           <div className="mt-5">
@@ -458,8 +438,8 @@ export default function WargaPage() {
                 className={
                   "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
                   (filterKategori === null
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-600")
+                    ? "bg-emerald-800 text-white"
+                    : "bg-[#f5f7f4] text-gray-600")
                 }
               >
                 SEMUA
@@ -475,8 +455,8 @@ export default function WargaPage() {
                   className={
                     "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
                     (filterKategori === item.id
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-600")
+                      ? "bg-emerald-800 text-white"
+                      : "bg-[#f5f7f4] text-gray-600")
                   }
                 >
                   {item.nama}
@@ -536,7 +516,7 @@ export default function WargaPage() {
                         {item.nama}
                       </h2>
 
-                      <p className="mt-1 text-sm font-semibold text-blue-600">
+                      <p className="mt-1 text-sm font-semibold text-emerald-800">
                         RT {item.rt}
                       </p>
                     </div>
@@ -547,7 +527,7 @@ export default function WargaPage() {
                         (item.status_warga ===
                         "Aktif"
                           ? "bg-green-50 text-green-600"
-                          : "bg-gray-100 text-gray-500")
+                          : "bg-[#f5f7f4] text-gray-500")
                       }
                     >
                       {item.status_warga ||
@@ -574,7 +554,7 @@ export default function WargaPage() {
                         (kategoriItem) => (
                           <span
                             key={kategoriItem.id}
-                            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
+                            className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-900"
                           >
                             🏷️{" "}
                             {kategoriItem.nama}
@@ -587,21 +567,15 @@ export default function WargaPage() {
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <button
                       type="button"
-                      onClick={() =>
-                        (window.location.href =
-                          `/warga/${item.id}`)
-                      }
-                      className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      onClick={() => router.push(`/warga/${item.id}`)}
+                      className="rounded-xl bg-emerald-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-900"
                     >
                       Lihat Detail
                     </button>
 
                     <button
                       type="button"
-                      onClick={() =>
-                        (window.location.href =
-                          `/warga/${item.id}/edit`)
-                      }
+                      onClick={() => router.push(`/warga/${item.id}/edit`)}
                       className="rounded-xl bg-gray-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-900"
                     >
                       Edit Data

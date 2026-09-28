@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { toLocalMonthString } from "@/lib/date";
 
 type IpkRow = {
   id: number | null;
@@ -38,9 +39,7 @@ function formatBulan(value: string) {
 }
 
 export default function IpkPage() {
-  const [bulan, setBulan] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
+  const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [data, setData] = useState<IpkRow[]>(
     RT_LIST.map((rt) => ({
@@ -57,7 +56,7 @@ export default function IpkPage() {
 
   const awalBulan = `${bulan}-01`;
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setSaved(false);
 
@@ -92,11 +91,12 @@ export default function IpkPage() {
     );
 
     setLoading(false);
-  }
+  }, [awalBulan]);
 
   useEffect(() => {
-    loadData();
-  }, [bulan]);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   function ubahTerkumpul(index: number, value: string) {
     const angka = Number(angkaRupiah(value) || 0);
@@ -157,7 +157,6 @@ export default function IpkPage() {
       const payload = data.map((item) => ({
         bulan: awalBulan,
         rt: item.rt,
-        target: 0,
         terkumpul: item.terkumpul,
       }));
 

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { toLocalDateString } from "@/lib/date";
 
 type Kategori = {
   id: number;
@@ -28,9 +29,7 @@ function TambahKasForm() {
   const [kategori, setKategori] = useState<Kategori[]>([]);
   const [kategoriId, setKategoriId] = useState("");
 
-  const [tanggal, setTanggal] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [tanggal, setTanggal] = useState(toLocalDateString);
 
   const [keterangan, setKeterangan] = useState("");
   const [nominal, setNominal] = useState("");

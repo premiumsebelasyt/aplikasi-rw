@@ -51,7 +51,8 @@ export default function PengaturanKasPage() {
   }
 
   useEffect(() => {
-    loadKategori();
+    const timer = window.setTimeout(() => void loadKategori(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function tambahKategori() {

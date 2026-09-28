@@ -64,6 +64,23 @@ export default function PengaturanPage() {
         {/* Menu */}
         <section className="space-y-3">
           <Link
+            href="/pengaturan/profil"
+            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+              AKUN
+            </p>
+
+            <h2 className="mt-1 font-bold text-slate-900">
+              Profil & keamanan
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Isi nama, NIK, nomor HP, dan ganti password akun.
+            </p>
+          </Link>
+
+          <Link
             href="/warga"
             className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
           >

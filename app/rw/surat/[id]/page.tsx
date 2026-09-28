@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { downloadSuratPdf } from "@/lib/surat/pdf";
 
 type Surat = {
   id: number;
@@ -16,6 +17,7 @@ type Surat = {
   rt: string | null;
   rw: string | null;
   status: string;
+  ditolak_alasan: string | null;
   created_at: string;
 
   ttd_rt: boolean;
@@ -85,13 +87,27 @@ export default function DetailSuratRW() {
   const [pesan, setPesan] = useState("");
 
   const [namaRW, setNamaRW] = useState("");
+  const [mengunduhPdf, setMengunduhPdf] = useState(false);
+  const [pesanPdf, setPesanPdf] = useState("");
 
   useEffect(() => {
     if (!id) return;
 
     async function loadData() {
-      setLoading(true);
-      setPesan("");
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        router.replace("/login");
+        return;
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, nama_lengkap")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (profileError || !profile || !["RW", "ADMIN"].includes(profile.role)) {
+        router.replace("/login");
+        return;
+      }
 
       const { data: suratData, error: suratError } =
         await supabase
@@ -129,15 +145,13 @@ export default function DetailSuratRW() {
         }
       }
 
-      if (suratData.ttd_rw_nama) {
-        setNamaRW(suratData.ttd_rw_nama);
-      }
+      setNamaRW(suratData.ttd_rw_nama || profile.nama_lengkap || "");
 
       setLoading(false);
     }
 
     loadData();
-  }, [id]);
+  }, [id, router]);
 
   async function setujuiSurat() {
     if (!surat || proses) return;
@@ -240,6 +254,7 @@ export default function DetailSuratRW() {
       .from("surat")
       .update({
         status: "DITOLAK",
+        ditolak_alasan: alasanBersih,
       })
       .eq("id", surat.id)
       .eq("status", "MENUNGGU_RW")
@@ -481,6 +496,7 @@ export default function DetailSuratRW() {
         ttd_rw_at: waktuTtd,
         ttd_rw_nama: namaBersih,
         ttd_rw_gambar: gambarTtd,
+        status: "TERBIT",
       })
       .eq("id", surat.id)
       .eq("status", "DISETUJUI")
@@ -502,10 +518,29 @@ export default function DetailSuratRW() {
     setSurat(data);
 
     setPesan(
-      "TTD RW berhasil disimpan. Tanda tangan asli sudah tersimpan dan siap digunakan pada PDF resmi."
+      "TTD RW berhasil disimpan. Surat kini berstatus terbit dan siap diunduh sebagai PDF resmi."
     );
 
     setProses(false);
+  }
+
+  async function unduhSuratPdf() {
+    if (!surat || !warga) return;
+    setMengunduhPdf(true);
+    setPesanPdf("");
+    try {
+      await downloadSuratPdf(surat, {
+        nama: warga.nama,
+        nik: warga.nik,
+        no_kk: warga.no_kk,
+        alamat: warga.alamat,
+        rt: warga.rt || surat.rt || "-",
+      });
+    } catch (error) {
+      setPesanPdf(error instanceof Error ? error.message : "PDF gagal dibuat.");
+    } finally {
+      setMengunduhPdf(false);
+    }
   }
 
   if (loading) {
@@ -597,7 +632,7 @@ export default function DetailSuratRW() {
                     : sudahDitolak
                     ? "bg-red-100 text-red-800"
                     : sudahTerbit
-                    ? "bg-blue-100 text-blue-800"
+                    ? "bg-emerald-100 text-emerald-900"
                     : "bg-slate-100 text-slate-700"
                 }`}
               >
@@ -873,14 +908,10 @@ export default function DetailSuratRW() {
                   <input
                     type="text"
                     value={namaRW}
-                    onChange={(e) =>
-                      setNamaRW(
-                        e.target.value
-                      )
-                    }
-                    placeholder="Masukkan nama Ketua RW"
+                    readOnly
+                    placeholder="Lengkapi nama di Profil & keamanan"
                     disabled={proses}
-                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200 disabled:bg-slate-100"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
                   />
                 </div>
 
@@ -946,12 +977,12 @@ export default function DetailSuratRW() {
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-xl bg-blue-50 p-4">
-                  <p className="font-bold text-blue-800">
+                <div className="mt-4 rounded-xl bg-emerald-50 p-4">
+                  <p className="font-bold text-emerald-900">
                     📄 Siap masuk tahap PDF resmi
                   </p>
 
-                  <p className="mt-1 text-sm text-blue-700">
+                  <p className="mt-1 text-sm text-emerald-900">
                     Tanda tangan RT dan RW sudah
                     lengkap.
                   </p>
@@ -976,14 +1007,25 @@ export default function DetailSuratRW() {
 
         {/* TERBIT */}
         {sudahTerbit && (
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-            <h2 className="text-lg font-bold text-blue-800">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <h2 className="text-lg font-bold text-emerald-900">
               📄 Surat Telah Terbit
             </h2>
 
-            <p className="mt-2 text-sm text-blue-700">
+            <p className="mt-2 text-sm text-emerald-900">
               Surat resmi telah diterbitkan.
             </p>
+            {warga && surat.ttd_rt && surat.ttd_rw && (
+              <button
+                type="button"
+                onClick={unduhSuratPdf}
+                disabled={mengunduhPdf}
+                className="mt-4 min-h-12 w-full rounded-xl bg-emerald-800 px-4 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {mengunduhPdf ? "Menyiapkan PDF…" : "Unduh PDF resmi · A4"}
+              </button>
+            )}
+            {pesanPdf && <p role="alert" className="mt-3 text-sm text-red-700">{pesanPdf}</p>}
           </div>
         )}
 

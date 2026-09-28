@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 
@@ -77,7 +77,7 @@ export default function RekapKasPage() {
     (_, index) => tahunSekarang - index
   );
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
 
     const awalTahun = `${tahun}-01-01`;
@@ -189,11 +189,12 @@ export default function RekapKasPage() {
     );
 
     setLoading(false);
-  }
+  }, [tahun]);
 
   useEffect(() => {
-    loadData();
-  }, [tahun]);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   const rekap = useMemo<RekapBulan[]>(() => {
     return NAMA_BULAN.map(

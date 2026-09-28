@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { ambilKategoriWarga } from "@/lib/warga/kategori";
+import { ambilDataWarga } from "@/lib/warga/data";
 import { useParams, useRouter } from "next/navigation";
 
 type Kategori = {
@@ -37,7 +39,7 @@ export default function DetailWargaPage() {
   const [loading, setLoading] = useState(true);
   const [pesan, setPesan] = useState("");
 
-  async function ambilData() {
+  const ambilData = useCallback(async () => {
     setLoading(true);
     setPesan("");
 
@@ -49,85 +51,51 @@ export default function DetailWargaPage() {
       return;
     }
 
-    const wargaResult = await supabase
-      .from("warga")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (wargaResult.error) {
-      console.error(
-        "Gagal mengambil detail warga:",
-        wargaResult.error
-      );
-
-      setPesan(
-        "Gagal mengambil data warga: " +
-          wargaResult.error.message
-      );
-
-      setLoading(false);
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      router.replace("/login");
+      return;
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, rt")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileError || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+      router.replace("/login");
       return;
     }
 
-    const hubunganResult = await supabase
-      .from("warga_kategori")
-      .select("kategori_id")
-      .eq("warga_id", id);
-
-    if (hubunganResult.error) {
-      console.error(
-        "Gagal mengambil kategori warga:",
-        hubunganResult.error
-      );
-
-      setPesan(
-        "Gagal mengambil kategori warga: " +
-          hubunganResult.error.message
-      );
-
+    let dataWarga: Warga;
+    try {
+      const result = await ambilDataWarga<Warga>(id);
+      dataWarga = result.warga[0];
+    } catch (error) {
+      setPesan(error instanceof Error ? error.message : "Data warga tidak ditemukan atau di luar wilayah tugas.");
       setLoading(false);
       return;
     }
-
-    const kategoriIds = (hubunganResult.data || []).map(
-      (item) => item.kategori_id
-    );
 
     let daftarKategori: Kategori[] = [];
-
-    if (kategoriIds.length > 0) {
-      const kategoriResult = await supabase
-        .from("kategori_warga")
-        .select("id, nama")
-        .in("id", kategoriIds);
-
-      if (kategoriResult.error) {
-        console.error(
-          "Gagal mengambil nama kategori:",
-          kategoriResult.error
-        );
-
-        setPesan(
-          "Gagal mengambil kategori: " +
-            kategoriResult.error.message
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      daftarKategori = kategoriResult.data || [];
+    try {
+      const kategoriData = await ambilKategoriWarga();
+      const idsKategori = new Set(kategoriData.relations.filter((relation) => relation.warga_id === id).map((relation) => relation.kategori_id));
+      daftarKategori = kategoriData.categories.filter((item) => idsKategori.has(item.id));
+    } catch (error) {
+      setPesan(error instanceof Error ? error.message : "Gagal mengambil kategori warga.");
+      setLoading(false);
+      return;
     }
 
-    setWarga(wargaResult.data);
+    setWarga(dataWarga);
     setKategori(daftarKategori);
     setLoading(false);
-  }
+  }, [params.id, router]);
 
   useEffect(() => {
-    ambilData();
-  }, []);
+    const timer = window.setTimeout(() => void ambilData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [ambilData]);
 
   function formatTanggal(tanggal: string | null) {
     if (!tanggal) return "-";
@@ -162,18 +130,18 @@ export default function DetailWargaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-blue-700 px-5 py-5 text-white">
+    <main className="min-h-screen bg-[#f5f7f4] pb-10">
+      <header className="bg-emerald-900 px-5 py-5 text-white">
         <div className="mx-auto max-w-xl">
           <button
             type="button"
             onClick={() => router.push("/warga")}
-            className="mb-4 text-sm font-semibold text-blue-100"
+            className="mb-4 text-sm font-semibold text-emerald-100"
           >
             ← Kembali ke Data Warga
           </button>
 
-          <p className="text-sm text-blue-100">
+          <p className="text-sm text-emerald-100">
             Nuansa Indah Ciomas • RW 16
           </p>
 
@@ -204,7 +172,7 @@ export default function DetailWargaPage() {
           <>
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="flex items-start gap-4">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-blue-100 text-3xl">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-3xl">
                   👤
                 </div>
 
@@ -229,7 +197,7 @@ export default function DetailWargaPage() {
                 </span>
 
                 {warga.jenis_kelamin && (
-                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
                     {warga.jenis_kelamin === "L"
                       ? "Laki-laki"
                       : "Perempuan"}
@@ -238,7 +206,7 @@ export default function DetailWargaPage() {
 
                 {hitungUmur(warga.tanggal_lahir) !==
                   null && (
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
+                  <span className="rounded-full bg-[#f5f7f4] px-3 py-1 text-xs font-semibold text-gray-600">
                     {hitungUmur(warga.tanggal_lahir)} tahun
                   </span>
                 )}

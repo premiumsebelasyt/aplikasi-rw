@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 type Surat = {
@@ -34,24 +35,58 @@ const daftarStatus = [
 ];
 
 export default function SuratPage() {
+  const router = useRouter();
   const [surat, setSurat] = useState<SuratDenganWarga[]>([]);
   const [filterStatus, setFilterStatus] = useState("SEMUA");
   const [loading, setLoading] = useState(true);
   const [pesan, setPesan] = useState("");
 
-  useEffect(() => {
-    ambilSurat();
-  }, []);
-
-  async function ambilSurat() {
-    setLoading(true);
-    setPesan("");
-
+  const ambilSurat = useCallback(async () => {
     try {
-      const { data: dataSurat, error: suratError } = await supabase
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        router.replace("/login");
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, no_kk, rt")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (profileError || !profile) throw new Error("Profil akses akun belum tersedia.");
+
+      let scopedWargaIds: number[] | null = null;
+      if (profile.role === "WARGA") {
+        if (!profile.no_kk) throw new Error("Akun belum terhubung ke KK.");
+        const { data: family, error: familyError } = await supabase
+          .from("warga")
+          .select("id")
+          .eq("no_kk", profile.no_kk);
+        if (familyError) throw familyError;
+        scopedWargaIds = (family ?? []).map((member) => member.id);
+        if (scopedWargaIds.length === 0) {
+          setSurat([]);
+          setLoading(false);
+          return;
+        }
+      } else if (profile.role === "RT" && !profile.rt) {
+        throw new Error("Akun RT belum memiliki wilayah tugas.");
+      } else if (!["RT", "RW", "ADMIN"].includes(profile.role)) {
+        router.replace(profile.role === "BENDAHARA" ? "/kas" : "/login");
+        return;
+      }
+
+      let suratQuery = supabase
         .from("surat")
         .select("*")
         .order("created_at", { ascending: false });
+      suratQuery = profile.role === "WARGA"
+        ? suratQuery.in("warga_id", scopedWargaIds ?? [])
+        : profile.role === "RT"
+          ? suratQuery.eq("rt", profile.rt)
+          : suratQuery;
+      const { data: dataSurat, error: suratError } = await suratQuery;
 
       if (suratError) {
         throw suratError;
@@ -113,7 +148,15 @@ export default function SuratPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    async function loadAfterMount() {
+      await Promise.resolve();
+      await ambilSurat();
+    }
+    void loadAfterMount();
+  }, [ambilSurat]);
 
   function formatJenisSurat(jenis: string) {
     const daftar: Record<string, string> = {
@@ -131,7 +174,7 @@ export default function SuratPage() {
 
   function formatStatus(status: string) {
     const daftar: Record<string, string> = {
-      DRAFT: "Draft",
+      DRAFT: "Menunggu TTD RT",
       MENUNGGU_RW: "Menunggu RW",
       DISETUJUI: "Disetujui",
       DITOLAK: "Ditolak",
@@ -156,7 +199,7 @@ export default function SuratPage() {
         return "bg-red-50 text-red-700";
 
       case "TERBIT":
-        return "bg-blue-50 text-blue-700";
+        return "bg-emerald-50 text-emerald-900";
 
       default:
         return "bg-gray-100 text-gray-700";
@@ -180,9 +223,9 @@ export default function SuratPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-blue-700 px-5 py-6 text-white">
+      <header className="bg-emerald-900 px-5 py-6 text-white">
         <div className="mx-auto max-w-xl">
-          <p className="text-sm text-blue-100">
+          <p className="text-sm text-emerald-100">
             Sistem Administrasi RW 16
           </p>
 
@@ -190,7 +233,7 @@ export default function SuratPage() {
             Daftar Surat
           </h1>
 
-          <p className="mt-1 text-sm text-blue-100">
+          <p className="mt-1 text-sm text-emerald-100">
             Pantau seluruh surat warga
           </p>
         </div>
@@ -211,10 +254,8 @@ export default function SuratPage() {
 
             <button
               type="button"
-              onClick={() => {
-                window.location.href = "/buat-surat";
-              }}
-              className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+              onClick={() => router.push("/buat-surat")}
+              className="rounded-xl bg-emerald-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-900"
             >
               + Buat Surat
             </button>
@@ -238,7 +279,7 @@ export default function SuratPage() {
                   className={
                     "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition " +
                     (aktif
-                      ? "bg-blue-600 text-white"
+                      ? "bg-emerald-800 text-white"
                       : "bg-gray-100 text-gray-600")
                   }
                 >
@@ -362,9 +403,7 @@ export default function SuratPage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    window.location.href = `/surat/${item.id}`;
-                  }}
+                  onClick={() => router.push(`/surat/${item.id}`)}
                   className="mt-4 w-full rounded-xl bg-gray-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-gray-900"
                 >
                   Lihat Detail Surat

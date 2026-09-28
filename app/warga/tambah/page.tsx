@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { ambilKategoriWarga } from "@/lib/warga/kategori";
+import { normalizeRtScope } from "@/lib/warga/rt-scope";
+import { simpanDataWarga } from "@/lib/warga/data";
 
 type Kategori = {
   id: number;
@@ -33,31 +36,54 @@ export default function TambahWargaPage() {
   const [loading, setLoading] = useState(false);
   const [memuatKategori, setMemuatKategori] = useState(true);
   const [pesan, setPesan] = useState("");
+  const [roleAkun, setRoleAkun] = useState<string | null>(null);
 
-  useEffect(() => {
-    ambilKategori();
-  }, []);
+  const ambilKategori = useCallback(async () => {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      router.replace("/login");
+      return;
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, rt")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileError || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+      router.replace("/login");
+      return;
+    }
+    setRoleAkun(profile.role);
+    if (profile.role === "RT") {
+      if (!profile.rt) {
+        setPesan("Akun RT belum memiliki wilayah tugas.");
+        setMemuatKategori(false);
+        return;
+      }
+      const rtScope = normalizeRtScope(profile.rt);
+      if (!rtScope) {
+        setPesan("Akun RT belum memiliki wilayah tugas yang valid.");
+        setMemuatKategori(false);
+        return;
+      }
+      setRt(rtScope);
+    }
 
-  async function ambilKategori() {
-    setMemuatKategori(true);
-
-    const { data, error } = await supabase
-      .from("kategori_warga")
-      .select("id, nama")
-      .order("nama", { ascending: true });
-
-    if (error) {
-      console.error("Gagal mengambil kategori:", error);
-      setPesan(
-        "Gagal mengambil kategori: " + error.message
-      );
+    try {
+      const { categories } = await ambilKategoriWarga();
+      setKategori(categories);
+    } catch (error) {
+      setPesan(error instanceof Error ? error.message : "Gagal mengambil kategori warga.");
       setMemuatKategori(false);
       return;
     }
-
-    setKategori(data || []);
     setMemuatKategori(false);
-  }
+  }, [router]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void ambilKategori(), 0);
+    return () => window.clearTimeout(timer);
+  }, [ambilKategori]);
 
   function toggleKategori(id: number) {
     setKategoriDipilih((sebelumnya) => {
@@ -85,80 +111,47 @@ export default function TambahWargaPage() {
       return;
     }
 
-    const { data: wargaBaru, error: wargaError } =
-      await supabase
-        .from("warga")
-        .insert({
-          nik,
-          no_kk: noKk || null,
-          nama,
-          alamat,
-          rt,
-          jenis_kelamin: jenisKelamin || null,
-          tempat_lahir: tempatLahir || null,
-          tanggal_lahir: tanggalLahir || null,
-          agama: agama || null,
-          status_perkawinan:
-            statusPerkawinan || null,
-          no_hp: noHp || null,
-          pendidikan: pendidikan || null,
-          pekerjaan: pekerjaan || null,
-          status_tinggal:
-            statusTinggal || "Tetap",
-          status_warga: "Aktif",
-        })
-        .select("id")
-        .single();
-
-    if (wargaError) {
-      console.error(
-        "Gagal menyimpan warga:",
-        wargaError
-      );
-
-      if (wargaError.code === "23505") {
-        setPesan("NIK tersebut sudah terdaftar.");
-      } else {
-        setPesan(
-          "Gagal menyimpan data warga: " +
-            wargaError.message
-        );
-      }
-
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      router.replace("/login");
+      setLoading(false);
+      return;
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("role, rt")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    if (profileError || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+      setPesan("Akses untuk menambah data warga tidak tersedia.");
+      setLoading(false);
+      return;
+    }
+    const rtWarga = profile.role === "RT" ? normalizeRtScope(profile.rt) : rt;
+    if (!rtWarga) {
+      setPesan("Akun RT belum memiliki wilayah tugas.");
       setLoading(false);
       return;
     }
 
-    if (
-      wargaBaru &&
-      kategoriDipilih.length > 0
-    ) {
-      const dataKategori = kategoriDipilih.map(
-        (kategoriId) => ({
-          warga_id: wargaBaru.id,
-          kategori_id: kategoriId,
-        })
-      );
-
-      const { error: kategoriError } =
-        await supabase
-          .from("warga_kategori")
-          .insert(dataKategori);
-
-      if (kategoriError) {
-        console.error(
-          "Gagal menyimpan kategori:",
-          kategoriError
-        );
-
-        setPesan(
-          "Data warga berhasil disimpan, tetapi kategori gagal disimpan: " +
-            kategoriError.message
-        );
-
-        setLoading(false);
-        return;
-      }
+    try {
+      await simpanDataWarga({
+        nik, no_kk: noKk || null, nama, alamat, rt: rtWarga,
+        jenis_kelamin: jenisKelamin || null,
+        tempat_lahir: tempatLahir || null,
+        tanggal_lahir: tanggalLahir || null,
+        agama: agama || null,
+        status_perkawinan: statusPerkawinan || null,
+        no_hp: noHp || null,
+        pendidikan: pendidikan || null,
+        pekerjaan: pekerjaan || null,
+        status_tinggal: statusTinggal || "Tetap",
+        kategori_ids: kategoriDipilih,
+      });
+    } catch (error) {
+      setPesan(error instanceof Error ? error.message : "Data warga gagal disimpan.");
+      setLoading(false);
+      return;
     }
 
     router.push("/warga");
@@ -166,18 +159,18 @@ export default function TambahWargaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-blue-700 px-5 py-6 text-white">
+    <main className="min-h-screen bg-[#f5f7f4] pb-10">
+      <header className="bg-emerald-900 px-5 py-6 text-white">
         <div className="mx-auto max-w-xl">
           <button
             type="button"
             onClick={() => router.back()}
-            className="mb-4 text-sm text-blue-100"
+            className="mb-4 text-sm text-emerald-100"
           >
             ← Kembali
           </button>
 
-          <p className="text-sm text-blue-100">
+          <p className="text-sm text-emerald-100">
             Nuansa Indah Ciomas
           </p>
 
@@ -185,7 +178,7 @@ export default function TambahWargaPage() {
             Tambah Warga
           </h1>
 
-          <p className="mt-1 text-sm text-blue-100">
+          <p className="mt-1 text-sm text-emerald-100">
             Tambahkan data warga RW 16
           </p>
         </div>
@@ -218,7 +211,7 @@ export default function TambahWargaPage() {
                     )
                   }
                   placeholder="16 digit NIK"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -238,7 +231,7 @@ export default function TambahWargaPage() {
                     )
                   }
                   placeholder="16 digit nomor KK"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -254,7 +247,7 @@ export default function TambahWargaPage() {
                     setNama(e.target.value)
                   }
                   placeholder="Nama lengkap"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -270,7 +263,7 @@ export default function TambahWargaPage() {
                   }
                   placeholder="Alamat lengkap"
                   rows={3}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -284,7 +277,8 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setRt(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
+                  disabled={roleAkun === "RT"}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-emerald-800"
                 >
                   <option value="01">RT 01</option>
                   <option value="02">RT 02</option>
@@ -330,7 +324,7 @@ export default function TambahWargaPage() {
                       className={
                         "rounded-xl border px-4 py-3 text-left text-sm font-semibold transition " +
                         (dipilih
-                          ? "border-blue-600 bg-blue-50 text-blue-700"
+                          ? "border-emerald-800 bg-emerald-50 text-emerald-900"
                           : "border-gray-200 bg-gray-50 text-gray-600")
                       }
                     >
@@ -339,7 +333,7 @@ export default function TambahWargaPage() {
                           className={
                             "flex h-5 w-5 items-center justify-center rounded border text-xs " +
                             (dipilih
-                              ? "border-blue-600 bg-blue-600 text-white"
+                              ? "border-emerald-800 bg-emerald-800 text-white"
                               : "border-gray-300 bg-white")
                           }
                         >
@@ -377,7 +371,7 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setJenisKelamin(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-emerald-800"
                 >
                   <option value="">
                     Pilih jenis kelamin
@@ -399,7 +393,7 @@ export default function TambahWargaPage() {
                     setTempatLahir(e.target.value)
                   }
                   placeholder="Tempat lahir"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -414,7 +408,7 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setTanggalLahir(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -428,7 +422,7 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setAgama(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-emerald-800"
                 >
                   <option value="">Pilih agama</option>
                   <option value="Islam">Islam</option>
@@ -450,7 +444,7 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setStatusPerkawinan(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-emerald-800"
                 >
                   <option value="">
                     Pilih status perkawinan
@@ -488,7 +482,7 @@ export default function TambahWargaPage() {
                     setNoHp(e.target.value)
                   }
                   placeholder="08xxxxxxxxxx"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -504,7 +498,7 @@ export default function TambahWargaPage() {
                     setPendidikan(e.target.value)
                   }
                   placeholder="Contoh: SMA"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -520,7 +514,7 @@ export default function TambahWargaPage() {
                     setPekerjaan(e.target.value)
                   }
                   placeholder="Contoh: Wiraswasta"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-emerald-800"
                 />
               </div>
 
@@ -534,7 +528,7 @@ export default function TambahWargaPage() {
                   onChange={(e) =>
                     setStatusTinggal(e.target.value)
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-blue-600"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-emerald-800"
                 >
                   <option value="Tetap">Tetap</option>
                   <option value="Kontrak">Kontrak</option>
@@ -553,7 +547,7 @@ export default function TambahWargaPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-emerald-800 px-4 py-4 text-base font-bold text-white transition hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading
               ? "Menyimpan..."

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
 
 type Kategori = {
   id: number;
@@ -65,9 +66,7 @@ function formatBulan(value: string) {
 }
 
 export default function TransaksiKasPage() {
-  const [bulan, setBulan] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
+  const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [jenisFilter, setJenisFilter] = useState<
     "SEMUA" | "PEMASUKAN" | "PENGELUARAN"
@@ -97,17 +96,9 @@ export default function TransaksiKasPage() {
   const [deletingId, setDeletingId] =
     useState<number | null>(null);
 
-  const awalBulan = `${bulan}-01`;
+  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
 
-  const akhirBulan = new Date(
-    Number(bulan.slice(0, 4)),
-    Number(bulan.slice(5, 7)),
-    0
-  )
-    .toISOString()
-    .slice(0, 10);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
 
     const [transaksiRes, kategoriRes] =
@@ -164,11 +155,12 @@ export default function TransaksiKasPage() {
     setKategori(kategoriRes.data || []);
 
     setLoading(false);
-  }
+  }, [awalBulan, akhirBulan]);
 
   useEffect(() => {
-    loadData();
-  }, [bulan]);
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
   const transaksiFiltered = useMemo(() => {
     const kata = search.trim().toLowerCase();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
@@ -37,15 +37,23 @@ export default function SuratRWPage() {
   const [prosesId, setProsesId] = useState<number | null>(null);
   const [pesan, setPesan] = useState("");
 
-  useEffect(() => {
-    ambilSurat();
-  }, []);
-
-  async function ambilSurat() {
-    setLoading(true);
-    setPesan("");
-
+  const ambilSurat = useCallback(async () => {
     try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        router.replace("/login");
+        return;
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (profileError || !profile || !["RW", "ADMIN"].includes(profile.role)) {
+        router.replace("/login");
+        return;
+      }
+
       const { data: dataSurat, error: suratError } = await supabase
         .from("surat")
         .select("*")
@@ -99,7 +107,15 @@ export default function SuratRWPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    async function loadAfterMount() {
+      await Promise.resolve();
+      await ambilSurat();
+    }
+    void loadAfterMount();
+  }, [ambilSurat]);
 
   async function setujuiSurat(id: number) {
     const yakin = window.confirm(
@@ -173,6 +189,7 @@ export default function SuratRWPage() {
         .from("surat")
         .update({
           status: "DITOLAK",
+          ditolak_alasan: alasan.trim(),
         })
         .eq("id", id)
         .eq("status", "MENUNGGU_RW");
@@ -245,19 +262,19 @@ export default function SuratRWPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-blue-700 px-5 py-6 text-white">
+      <header className="bg-emerald-900 px-5 py-6 text-white">
         <div className="mx-auto max-w-xl">
           <button
             type="button"
             onClick={() => {
               router.push("/");
             }}
-            className="text-sm font-semibold text-blue-100"
+            className="text-sm font-semibold text-emerald-100"
           >
             ← Kembali ke Dashboard
           </button>
 
-          <p className="mt-5 text-sm text-blue-100">
+          <p className="mt-5 text-sm text-emerald-100">
             Sistem Administrasi RW 16
           </p>
 
@@ -265,7 +282,7 @@ export default function SuratRWPage() {
             Surat Masuk RW
           </h1>
 
-          <p className="mt-1 text-sm text-blue-100">
+          <p className="mt-1 text-sm text-emerald-100">
             Pemeriksaan dan persetujuan surat dari RT
           </p>
         </div>
