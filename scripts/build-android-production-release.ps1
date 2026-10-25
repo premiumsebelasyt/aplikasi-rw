@@ -51,7 +51,7 @@ try {
         $memory = [System.IO.MemoryStream]::new()
         try {
           $entryStream.CopyTo($memory)
-          [System.Text.Encoding]::Latin1.GetString($memory.ToArray())
+          [System.Text.Encoding]::GetEncoding(28591).GetString($memory.ToArray())
         } finally {
           $entryStream.Dispose()
           $memory.Dispose()
