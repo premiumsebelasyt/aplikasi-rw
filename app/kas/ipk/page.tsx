@@ -54,6 +54,7 @@ export default function IpkPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [hasSavedPeriodData, setHasSavedPeriodData] = useState(false);
 
   const awalBulan = `${bulan}-01`;
 
@@ -75,6 +76,7 @@ export default function IpkPage() {
       return;
     }
 
+    setHasSavedPeriodData((hasil || []).length > 0);
     const hasilMap = new Map<string, { id: number | null; bulan: string; rt: string; terkumpul: number }>();
     for (const item of hasil || []) {
       const existing = hasilMap.get(item.rt);
@@ -191,7 +193,7 @@ export default function IpkPage() {
     () => data.filter((item) => Number(item.terkumpul) > 0).length,
     [data]
   );
-  const hasPeriodData = data.some((item) => item.terkumpul > 0);
+  const hasPeriodData = hasSavedPeriodData;
 
   return (
     <main className="min-h-screen bg-[var(--background)] pb-8">
@@ -208,7 +210,7 @@ export default function IpkPage() {
           </p>
 
           <p className="mt-1 text-3xl font-bold">
-            {totalTerkumpul === null ? "Total di luar batas angka aman" : formatRupiah(totalTerkumpul)}
+            {!hasPeriodData && !canEditPeriod ? "—" : totalTerkumpul === null ? "Total di luar batas angka aman" : formatRupiah(totalTerkumpul)}
           </p>
 
           <div className="mt-4 flex items-center justify-between gap-3">
@@ -246,8 +248,10 @@ export default function IpkPage() {
           ) : !hasPeriodData && !canEditPeriod ? (
             <div role="status" className="type-helper rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-slate-600">Belum ada data IPK untuk {periodRange.label}.</div>
           ) : (
-            <div className="space-y-3">
-              {data.map((item, index) => (
+            <>
+              {!hasPeriodData && canEditPeriod && <p role="status" className="type-helper mb-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-slate-600">Belum ada data IPK untuk bulan ini. Form di bawah siap diisi.</p>}
+              <div className="space-y-3">
+                {data.map((item, index) => (
                 <div
                   key={item.rt}
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -300,7 +304,8 @@ export default function IpkPage() {
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            </>
           )}
 
           {/* TOTAL BAWAH */}
@@ -318,7 +323,7 @@ export default function IpkPage() {
                 </div>
 
                 <p className="text-lg font-bold text-slate-900">
-                  {totalTerkumpul === null ? "—" : formatRupiah(totalTerkumpul)}
+                  {!hasPeriodData && !canEditPeriod ? "—" : totalTerkumpul === null ? "—" : formatRupiah(totalTerkumpul)}
                 </p>
               </div>
             </div>
