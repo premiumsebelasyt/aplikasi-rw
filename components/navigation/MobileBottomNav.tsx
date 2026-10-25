@@ -33,7 +33,7 @@ export function MobileBottomNav() {
     <div className={`mx-auto grid max-w-xl ${items.length === 3 ? "grid-cols-3" : "grid-cols-5"}`}>
       {items.map((item) => {
         const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
-        return <Link key={item.title} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-h-[62px] flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium ${active ? "text-emerald-700" : "text-slate-500"}`}>
+        return <Link key={item.title} href={item.href} aria-current={active ? "page" : undefined} className={`type-navigation flex min-h-[62px] flex-col items-center justify-center gap-1 px-1 ${active ? "text-emerald-700" : "text-slate-500"}`}>
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[21px] w-[21px]"><path d={icons[item.icon]} /></svg>
           <span className="max-w-full truncate">{item.title}</span>
         </Link>;

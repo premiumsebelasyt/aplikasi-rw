@@ -196,7 +196,7 @@ export default function PengaturanKasPage() {
                 {item.nama}
               </p>
 
-              <p className="mt-1 text-[11px] font-semibold">
+              <p className="mt-1 type-metadata font-semibold">
                 {item.aktif ? (
                   <span className="text-emerald-600">
                     AKTIF

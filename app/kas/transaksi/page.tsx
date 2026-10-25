@@ -6,7 +6,8 @@ import { supabase } from "@/lib/supabase/client";
 import { PageHeader } from "@/components/ui/AppShell";
 import { parseKasNominal } from "@/lib/kas/nominal.mjs";
 import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
-import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
+import { getDefaultReportPeriod, getReportPeriodRange, type ReportPeriodSelection } from "@/lib/report-period.mjs";
+import { PeriodFilter } from "@/components/ui/PeriodFilter";
 import { useKasAuthority } from "@/lib/kas/use-kas-authority";
 
 type Kategori = {
@@ -59,19 +60,10 @@ function formatTanggal(value: string) {
   );
 }
 
-function formatBulan(value: string) {
-  return new Date(value + "-01").toLocaleDateString(
-    "id-ID",
-    {
-      month: "long",
-      year: "numeric",
-    }
-  );
-}
-
 export default function TransaksiKasPage() {
   const { canManage } = useKasAuthority();
-  const [bulan, setBulan] = useState(toLocalMonthString);
+  const [period, setPeriod] = useState<ReportPeriodSelection>(getDefaultReportPeriod);
+  const periodRange = useMemo(() => getReportPeriodRange(period), [period]);
 
   const [jenisFilter, setJenisFilter] = useState<
     "SEMUA" | "PEMASUKAN" | "PENGELUARAN"
@@ -101,8 +93,6 @@ export default function TransaksiKasPage() {
   const [deletingId, setDeletingId] =
     useState<number | null>(null);
 
-  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
-
   const loadData = useCallback(async () => {
     setLoading(true);
 
@@ -113,8 +103,8 @@ export default function TransaksiKasPage() {
           .select(
             "id, tanggal, jenis, kategori_id, keterangan, nominal, rt, sumber, penerima, kas_ipk_id"
           )
-          .gte("tanggal", awalBulan)
-          .lte("tanggal", akhirBulan)
+          .gte("tanggal", periodRange.start)
+          .lte("tanggal", periodRange.end)
           .order("tanggal", {
             ascending: false,
           })
@@ -160,7 +150,7 @@ export default function TransaksiKasPage() {
     setKategori(kategoriRes.data || []);
 
     setLoading(false);
-  }, [awalBulan, akhirBulan]);
+  }, [periodRange.start, periodRange.end]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -488,23 +478,7 @@ export default function TransaksiKasPage() {
         <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title="Transaksi Kas" subtitle="Riwayat pemasukan dan pengeluaran" backHref="/kas" /></div>
 
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-
-          <label className="mb-2 block text-sm font-semibold text-slate-700">
-            Periode
-          </label>
-
-          <input aria-label="Periode"
-            type="month"
-            value={bulan}
-            onChange={(e) =>
-              setBulan(e.target.value)
-            }
-            className="h-12 w-full rounded-xl border border-slate-300 px-3 text-slate-800 outline-none sm:max-w-xs"
-          />
-
-          <p className="mt-2 text-xs text-slate-500">
-            {formatBulan(bulan)}
-          </p>
+          <PeriodFilter value={period} onChange={setPeriod} />
 
           <div className="mt-4 grid grid-cols-3 gap-2">
 
@@ -632,7 +606,7 @@ export default function TransaksiKasPage() {
             </div>
           ) : transaksiFiltered.length === 0 ? (
             <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-              Tidak ada transaksi yang sesuai.
+              Belum ada transaksi untuk periode ini atau filter yang dipilih.
             </div>
           ) : (
             <div className="space-y-3">
@@ -660,7 +634,7 @@ export default function TransaksiKasPage() {
                           <div className="flex flex-wrap items-center gap-2">
 
                             <span
-                              className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                              className={`rounded-full px-2 py-1 type-status font-bold ${
                                 item.jenis ===
                                 "PEMASUKAN"
                                   ? "bg-emerald-100 text-emerald-700"
@@ -671,7 +645,7 @@ export default function TransaksiKasPage() {
                             </span>
 
                             {item.kas_ipk_id ? (
-                              <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-bold text-blue-700">
+                              <span className="rounded-full bg-blue-100 px-2 py-1 type-status font-bold text-blue-700">
                                 IPK OTOMATIS
                               </span>
                             ) : null}
@@ -770,7 +744,7 @@ export default function TransaksiKasPage() {
 
                         </div>
                       ) : item.kas_ipk_id ? (
-                        <p className="mt-3 border-t border-slate-100 pt-3 text-[10px] font-semibold text-slate-400">
+                        <p className="mt-3 border-t border-slate-100 pt-3 type-status font-semibold text-slate-400">
                           Transaksi ini dikelola dari menu IPK Warga.
                         </p>
                       ) : null}

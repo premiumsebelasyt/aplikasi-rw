@@ -7,9 +7,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getVerifiedCurrentProfile } from "@/lib/auth/current-profile";
 import { ambilKategoriWarga } from "@/lib/warga/kategori";
 import { AppIcon, IconTile, MenuCard, SectionHeading, StatCard } from "@/components/ui/MobileAppUI";
-import { PageHeader } from "@/components/ui/AppShell";
-import { calculateWeeklyKasRecap, getFridayThursdayRange } from "@/lib/kas/weekly-recap.mjs";
-import type { KasWeekRecap } from "@/lib/kas/weekly-recap.mjs";
+import { DashboardIntro, DashboardLayout } from "@/components/ui/AppShell";
 
 type FamilyMember = {
   id: number;
@@ -77,8 +75,6 @@ export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [staffRole, setStaffRole] = useState<string | null>(null);
   const [rwRequests, setRwRequests] = useState<number | null>(null);
-  const [rwWeeklyRecap, setRwWeeklyRecap] = useState<KasWeekRecap | null>(null);
-  const [rwWeeklyError, setRwWeeklyError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -97,28 +93,12 @@ export default function Home() {
       if (profile.role !== "WARGA") {
         if (profile.role === "RW") {
           setStaffRole("RW");
-          const range = getFridayThursdayRange();
-          const monthStart = `${range.start.slice(0, 7)}-01`;
-          const [requestsResult, transactionsResult, openingResult] = await Promise.all([
-            supabase.from("surat").select("id", { count: "exact", head: true }).eq("status", "MENUNGGU_RW"),
-            supabase.from("kas_transaksi").select("tanggal, jenis, nominal").gte("tanggal", monthStart).lte("tanggal", range.end).order("tanggal", { ascending: true }),
-            supabase.from("kas_saldo_awal").select("nominal").eq("bulan", monthStart).maybeSingle(),
-          ]);
+          const requestsResult = await supabase
+            .from("surat")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "MENUNGGU_RW");
           if (!active) return;
           setRwRequests(requestsResult.error ? null : requestsResult.count ?? 0);
-          if (transactionsResult.error || openingResult.error) {
-            setRwWeeklyError("Rekap kas Jumat–Kamis belum dapat dimuat.");
-          } else {
-            try {
-              setRwWeeklyRecap(calculateWeeklyKasRecap(
-                (transactionsResult.data ?? []).map((row) => ({ ...row, nominal: Number(row.nominal) })),
-                openingResult.data ? Number(openingResult.data.nominal) : null,
-                range,
-              ));
-            } catch {
-              setRwWeeklyError("Data rekap kas Jumat–Kamis tidak valid.");
-            }
-          }
           setLoading(false);
           return;
         }
@@ -240,39 +220,23 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-[var(--background)] pb-28 text-slate-800">
-      <PageHeader
-        brand
-        eyebrow="RW 16 · Pelayanan Warga"
-        title="Nuansa Indah Ciomas"
-        notificationCount={isStaff ? rwRequests : undefined}
-      />
-
-      <div className="mx-auto max-w-xl space-y-5 px-4 pb-5 pt-4">
-        <section className="relative overflow-hidden rounded-[22px] bg-gradient-to-br from-emerald-700 to-emerald-800 p-5 text-white shadow-[0_10px_24px_rgba(5,115,70,.16)]">
-          <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full border-[18px] border-white/5" />
-          <p className="relative text-xs font-medium text-emerald-100">Selamat datang,</p>
-          <h1 className="relative mt-1 text-xl font-bold tracking-tight">{loading ? "Memuat akun…" : isStaff ? "Ketua RW" : dashboard ? dashboard.name : "Kepala Keluarga"}</h1>
-          <p className="relative mt-1 text-xs text-emerald-100">{isStaff ? "RW 16 · RT 01–06" : rtLabel}</p>
-        </section>
+    <DashboardLayout
+      brand
+      eyebrow="RW 16 · Pelayanan Warga"
+      title={isStaff ? "Dashboard Ketua RW" : "Dashboard Warga"}
+      subtitle={isStaff ? "Layanan administrasi RW 16" : dashboard?.name || "Layanan administrasi keluarga"}
+      notificationCount={isStaff ? rwRequests : undefined}
+    >
+        <DashboardIntro
+          eyebrow={isStaff ? "Ketua RW" : "Warga"}
+          title={loading ? "Memuat akun…" : isStaff ? "RW 16" : dashboard ? dashboard.name : "Kepala Keluarga"}
+          description={isStaff ? "Pelayanan wilayah RT 01–06" : rtLabel}
+        />
 
         {isStaff ? <>
           <section aria-label="Ringkasan RW" className="grid grid-cols-2 gap-3">
             <StatCard label="Menunggu tanda tangan RW" value={rwRequests ?? "—"} icon="inbox" tone="amber" />
             <StatCard label="Wilayah RT terdaftar" value="6" icon="building" tone="blue" />
-          </section>
-          <section aria-label="Rekap kas mingguan" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
-            <SectionHeading title="Rekap Kas Jumat–Kamis" action="Lihat kas" href="/kas" />
-            {rwWeeklyError ? <p role="alert" className="text-sm text-amber-800">{rwWeeklyError}</p> : rwWeeklyRecap ? <>
-              <p className="text-xs text-slate-500">{new Date(`${rwWeeklyRecap.start}T12:00:00`).toLocaleDateString("id-ID", { dateStyle: "medium" })} – {new Date(`${rwWeeklyRecap.end}T12:00:00`).toLocaleDateString("id-ID", { dateStyle: "medium" })}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <p className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-500">Saldo awal Jumat</span><strong>{rwWeeklyRecap.openingBalance === null ? "Belum tersedia" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.openingBalance)}</strong></p>
-                <p className="rounded-xl bg-emerald-50 p-3"><span className="block text-xs text-emerald-700">Pemasukan</span><strong>{rwWeeklyRecap.income === null ? "—" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.income)}</strong></p>
-                <p className="rounded-xl bg-rose-50 p-3"><span className="block text-xs text-rose-700">Pengeluaran</span><strong>{rwWeeklyRecap.expenses === null ? "—" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.expenses)}</strong></p>
-                <p className="rounded-xl bg-slate-900 p-3 text-white"><span className="block text-xs text-slate-300">Saldo akhir Kamis</span><strong>{rwWeeklyRecap.closingBalance === null ? "Belum tersedia" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.closingBalance)}</strong></p>
-              </div>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">Saldo awal memakai saldo bulanan tercatat untuk bulan yang memuat hari Jumat, ditambah transaksi sejak awal bulan hingga Kamis sebelumnya. Pemasukan IPK diambil dari ledger transaksi RW16.</p>
-            </> : <p role="status" className="text-sm text-slate-500">Memuat rekap kas…</p>}
           </section>
           <section>
             <SectionHeading title="Menu Utama" action="Lihat menu" href="/menu" />
@@ -282,7 +246,7 @@ export default function Home() {
             <SectionHeading title="Permintaan surat" action="Buka inbox" href="/rw/surat" />
             <Link href="/rw/surat" className={`flex items-center gap-3 rounded-xl px-3 py-3 ${rwRequests ? "bg-amber-50" : "bg-emerald-50"}`}>
               <IconTile name="inbox" tone={rwRequests ? "amber" : "green"} className="h-9 w-9 rounded-xl" />
-              <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">{rwRequests === null ? "Notifikasi belum termuat" : rwRequests ? `${rwRequests} surat menunggu ditinjau` : "Tidak ada permintaan baru"}</p><p className="mt-0.5 text-[11px] text-slate-500">Surat yang menunggu tanda tangan RW</p></div>
+              <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">{rwRequests === null ? "Notifikasi belum termuat" : rwRequests ? `${rwRequests} surat menunggu ditinjau` : "Tidak ada permintaan baru"}</p><p className="mt-0.5 type-metadata text-slate-500">Surat yang menunggu tanda tangan RW</p></div>
               <AppIcon name="arrow" className="h-4 w-4 text-slate-400" />
             </Link>
           </section>
@@ -306,16 +270,15 @@ export default function Home() {
             </section>
             <section id="anggota-keluarga" className="scroll-mt-20 rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
               <SectionHeading title="Anggota keluarga" />
-              {dashboard.members.length === 0 ? <p className="text-sm text-slate-500">Belum ada anggota yang terhubung ke nomor KK ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.members.map((member) => <li key={member.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="user" tone="cyan" className="h-9 w-9 rounded-full" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{member.nama}</p><p className="mt-0.5 text-[11px] text-slate-500">RT {member.rt}{member.status_warga ? ` · ${member.status_warga}` : ""}</p>{member.kategori.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{member.kategori.map((category) => <span key={category} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">{category}</span>)}</div>}</div></li>)}</ul>}
+              {dashboard.members.length === 0 ? <p className="text-sm text-slate-500">Belum ada anggota yang terhubung ke nomor KK ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.members.map((member) => <li key={member.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="user" tone="cyan" className="h-9 w-9 rounded-full" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{member.nama}</p><p className="mt-0.5 type-metadata text-slate-500">RT {member.rt}{member.status_warga ? ` · ${member.status_warga}` : ""}</p>{member.kategori.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{member.kategori.map((category) => <span key={category} className="rounded-full bg-emerald-50 px-2 py-0.5 type-status font-medium text-emerald-800">{category}</span>)}</div>}</div></li>)}</ul>}
             </section>
             <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
               <SectionHeading title="Surat terbaru" action="Lihat semua" href="/surat" />
               {dashboard.pendingLetters > 0 && <p className="mb-3 text-xs text-amber-800">{dashboard.pendingLetters} surat masih diproses</p>}
-              {dashboard.letters.length === 0 ? <p className="text-sm text-slate-500">Belum ada surat untuk keluarga ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.letters.map((letter) => <li key={letter.id}><Link href={`/surat/${letter.id}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="file" tone="green" className="h-9 w-9 rounded-xl" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-900">{letter.jenis_surat}</span><span className="mt-0.5 block text-[11px] text-slate-500">{new Date(letter.created_at).toLocaleDateString("id-ID", { dateStyle: "medium" })}</span></span><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${statusStyle(letter.status)}`}>{labelStatus(letter.status)}</span></Link></li>)}</ul>}
+              {dashboard.letters.length === 0 ? <p className="text-sm text-slate-500">Belum ada surat untuk keluarga ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.letters.map((letter) => <li key={letter.id}><Link href={`/surat/${letter.id}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="file" tone="green" className="h-9 w-9 rounded-xl" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-900">{letter.jenis_surat}</span><span className="mt-0.5 block type-metadata text-slate-500">{new Date(letter.created_at).toLocaleDateString("id-ID", { dateStyle: "medium" })}</span></span><span className={`shrink-0 rounded-full px-2 py-1 type-status font-semibold ${statusStyle(letter.status)}`}>{labelStatus(letter.status)}</span></Link></li>)}</ul>}
             </section>
           </>}
         </>}
-      </div>
-    </main>
+    </DashboardLayout>
   );
 }

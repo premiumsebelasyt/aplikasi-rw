@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase/client";
 import { PageHeader } from "@/components/ui/AppShell";
 import { calculateCashBalance } from "@/lib/kas/balance.mjs";
 import { summarizeKasCashflow } from "@/lib/kas/cashflow-summary.mjs";
-import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
+import { getDefaultReportPeriod, getReportPeriodRange, type ReportPeriodSelection } from "@/lib/report-period.mjs";
+import { PeriodFilter } from "@/components/ui/PeriodFilter";
 
 type Kategori = {
   id: number;
@@ -57,13 +58,6 @@ function formatTanggal(value: string) {
   });
 }
 
-function formatBulan(value: string) {
-  return new Date(value + "-01").toLocaleDateString("id-ID", {
-    month: "long",
-    year: "numeric",
-  });
-}
-
 function formatTanggalPdf(value: string) {
   return new Date(value).toLocaleDateString("id-ID", {
     day: "2-digit",
@@ -80,7 +74,8 @@ function formatRupiahPdf(value: number) {
 }
 
 export default function LaporanKasPage() {
-  const [bulan, setBulan] = useState(toLocalMonthString);
+  const [period, setPeriod] = useState<ReportPeriodSelection>(getDefaultReportPeriod);
+  const periodRange = useMemo(() => getReportPeriodRange(period), [period]);
 
   const [transaksi, setTransaksi] = useState<Transaksi[]>([]);
   const [kategori, setKategori] = useState<Kategori[]>([]);
@@ -89,8 +84,6 @@ export default function LaporanKasPage() {
 
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
-
-  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -104,8 +97,8 @@ export default function LaporanKasPage() {
       supabase
         .from("kas_transaksi")
         .select("*")
-        .gte("tanggal", awalBulan)
-        .lte("tanggal", akhirBulan)
+        .gte("tanggal", periodRange.start)
+        .lte("tanggal", periodRange.end)
         .order("tanggal", { ascending: true })
         .order("id", { ascending: true }),
 
@@ -117,13 +110,14 @@ export default function LaporanKasPage() {
       supabase
         .from("kas_ipk")
         .select("id, bulan, rt, terkumpul")
-        .eq("bulan", awalBulan)
+        .gte("bulan", periodRange.startMonth)
+        .lte("bulan", periodRange.endMonth)
         .order("rt"),
 
       supabase
         .from("kas_saldo_awal")
         .select("*")
-        .eq("bulan", awalBulan)
+        .eq("bulan", periodRange.startMonth)
         .maybeSingle(),
     ]);
 
@@ -174,7 +168,7 @@ export default function LaporanKasPage() {
     setSaldoAwal(saldoRes.data || null);
 
     setLoading(false);
-  }, [awalBulan, akhirBulan]);
+  }, [periodRange.start, periodRange.end, periodRange.startMonth, periodRange.endMonth]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -191,6 +185,7 @@ export default function LaporanKasPage() {
   }, [kategori]);
 
   const nilaiSaldoAwal = saldoAwal?.nominal ?? null;
+  const hasPeriodData = transaksi.length > 0 || ipk.length > 0 || saldoAwal !== null;
 
   const cashflow = useMemo(
     () => summarizeKasCashflow(transaksi, ipk),
@@ -295,7 +290,7 @@ export default function LaporanKasPage() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text(
-        `Periode ${formatBulan(bulan)}`,
+        `Periode ${periodRange.label}`,
         pageWidth / 2,
         y,
         { align: "center" }
@@ -553,9 +548,7 @@ export default function LaporanKasPage() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.text(
-        `RW 16 Nuansa Indah Ciomas — ${formatBulan(
-          bulan
-        )}`,
+        `RW 16 Nuansa Indah Ciomas — ${periodRange.label}`,
         pageWidth / 2,
         y,
         { align: "center" }
@@ -708,18 +701,10 @@ export default function LaporanKasPage() {
       // DOWNLOAD
       // =========================
 
-      const namaBulan = new Date(
-        `${bulan}-01`
-      )
-        .toLocaleDateString("id-ID", {
-          month: "long",
-        })
-        .replace(/\s+/g, "-");
-
-      const tahun = bulan.slice(0, 4);
+      const namaPeriode = periodRange.label.replace(/\s*[–—]\s*/g, "-").replace(/\s+/g, "-");
 
       doc.save(
-        `Laporan-Kas-RW16-${namaBulan}-${tahun}.pdf`
+        `Laporan-Kas-RW16-${namaPeriode}.pdf`
       );
     } catch (error) {
       console.error(error);
@@ -745,27 +730,13 @@ export default function LaporanKasPage() {
         {/* FILTER */}
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-300 print:hidden">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <label className="mb-2 block text-sm font-bold text-slate-800">
-                Periode Laporan
-              </label>
-
-              <input aria-label="Periode Laporan"
-                type="month"
-                value={bulan}
-                onChange={(e) =>
-                  setBulan(e.target.value)
-                }
-                className="rounded-xl border border-slate-400 bg-white px-3 py-3 font-medium text-slate-900 outline-none focus:border-slate-700"
-              />
-            </div>
-
+            <PeriodFilter value={period} onChange={setPeriod} />
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={downloadPdf}
                 disabled={
-                  loading || generatingPdf
+                  loading || generatingPdf || !hasPeriodData
                 }
                 className="rounded-xl bg-emerald-600 px-5 py-3 font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -803,7 +774,7 @@ export default function LaporanKasPage() {
             </h1>
 
             <p className="mt-1 text-sm font-semibold text-slate-700">
-              Periode {formatBulan(bulan)}
+              Periode {periodRange.label}
             </p>
           </header>
 
@@ -811,6 +782,8 @@ export default function LaporanKasPage() {
             <div className="py-16 text-center text-sm font-medium text-slate-600">
               Memuat laporan...
             </div>
+          ) : !hasPeriodData ? (
+            <div role="status" className="type-helper rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-600">Belum ada data untuk {periodRange.label}. Pilih periode lain untuk melihat laporan.</div>
           ) : (
             <>
               {/* RINGKASAN */}
@@ -910,7 +883,7 @@ export default function LaporanKasPage() {
                       <article key={`mobile-${item.jenis}-${item.nama}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${item.jenis === "PEMASUKAN" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{item.jenis}</span>
+                            <span className={`inline-flex rounded-full px-2.5 py-1 type-metadata font-bold ${item.jenis === "PEMASUKAN" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{item.jenis}</span>
                             <p className="mt-2 break-words text-sm font-semibold text-slate-950">{item.nama}</p>
                           </div>
                           <p className={`shrink-0 text-right text-sm font-bold ${item.jenis === "PEMASUKAN" ? "text-emerald-700" : "text-red-700"}`}>{formatRupiah(item.total)}</p>
@@ -997,11 +970,11 @@ export default function LaporanKasPage() {
                       <article key={`mobile-${item.id}`} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-[11px] text-slate-500">{formatTanggal(item.tanggal)}{item.rt ? ` · RT ${item.rt}` : ""}</p>
+                            <p className="type-metadata text-slate-500">{formatTanggal(item.tanggal)}{item.rt ? ` · RT ${item.rt}` : ""}</p>
                             <p className="mt-1 break-words text-sm font-semibold text-slate-950">{namaKategori(item.kategori_id)}</p>
                             <p className="mt-1 break-words text-xs leading-5 text-slate-600">{item.keterangan}</p>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${item.jenis === "PEMASUKAN" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{item.jenis}</span>
+                          <span className={`shrink-0 rounded-full px-2 py-1 type-status font-bold ${item.jenis === "PEMASUKAN" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{item.jenis}</span>
                         </div>
                         <p className={`mt-2 text-right text-sm font-bold ${item.jenis === "PEMASUKAN" ? "text-emerald-700" : "text-red-700"}`}>{formatRupiah(item.nominal)}</p>
                       </article>

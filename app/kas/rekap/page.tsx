@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase/client";
 import { PageHeader } from "@/components/ui/AppShell";
 import { calculateCashBalance } from "@/lib/kas/balance.mjs";
 import { summarizeKasCashflow } from "@/lib/kas/cashflow-summary.mjs";
+import { getDefaultReportPeriod, getReportPeriodRange, type ReportPeriodSelection } from "@/lib/report-period.mjs";
+import { PeriodFilter } from "@/components/ui/PeriodFilter";
 
 type Transaksi = {
   tanggal: string;
@@ -57,9 +59,8 @@ function formatRupiah(value: number) {
 }
 
 export default function RekapKasPage() {
-  const [tahun, setTahun] = useState(
-    String(new Date().getFullYear())
-  );
+  const [period, setPeriod] = useState<ReportPeriodSelection>(getDefaultReportPeriod);
+  const periodRange = useMemo(() => getReportPeriodRange(period), [period]);
 
   const [transaksi, setTransaksi] = useState<
     Transaksi[]
@@ -73,18 +74,8 @@ export default function RekapKasPage() {
 
   const [loading, setLoading] = useState(true);
 
-  const tahunSekarang = new Date().getFullYear();
-
-  const daftarTahun = Array.from(
-    { length: 5 },
-    (_, index) => tahunSekarang - index
-  );
-
   const loadData = useCallback(async () => {
     setLoading(true);
-
-    const awalTahun = `${tahun}-01-01`;
-    const akhirTahun = `${tahun}-12-31`;
 
     const [
       transaksiRes,
@@ -96,8 +87,8 @@ export default function RekapKasPage() {
         .select(
           "tanggal, jenis, nominal"
         )
-        .gte("tanggal", awalTahun)
-        .lte("tanggal", akhirTahun)
+        .gte("tanggal", periodRange.start)
+        .lte("tanggal", periodRange.end)
         .order("tanggal", {
           ascending: true,
         }),
@@ -107,8 +98,8 @@ export default function RekapKasPage() {
         .select(
           "bulan, nominal"
         )
-        .gte("bulan", awalTahun)
-        .lte("bulan", akhirTahun)
+        .gte("bulan", periodRange.start)
+        .lte("bulan", periodRange.end)
         .order("bulan", {
           ascending: true,
         }),
@@ -118,8 +109,8 @@ export default function RekapKasPage() {
         .select(
           "bulan, terkumpul"
         )
-        .gte("bulan", awalTahun)
-        .lte("bulan", akhirTahun)
+        .gte("bulan", periodRange.start)
+        .lte("bulan", periodRange.end)
         .order("bulan", {
           ascending: true,
         }),
@@ -192,7 +183,7 @@ export default function RekapKasPage() {
     );
 
     setLoading(false);
-  }, [tahun]);
+  }, [periodRange.start, periodRange.end]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -200,13 +191,9 @@ export default function RekapKasPage() {
   }, [loadData]);
 
   const rekap = useMemo<RekapBulan[]>(() => {
-    return NAMA_BULAN.map(
-      (namaBulan, index) => {
-        const nomorBulan = String(
-          index + 1
-        ).padStart(2, "0");
-
-        const bulan = `${tahun}-${nomorBulan}`;
+    return periodRange.months.map((bulan) => {
+        const nomorBulan = bulan.slice(-2);
+        const namaBulan = NAMA_BULAN[Number(nomorBulan) - 1];
 
         const transaksiBulan =
           transaksi.filter(
@@ -259,10 +246,9 @@ export default function RekapKasPage() {
           saldoAkhir,
           ipk: ipkBulan,
         };
-      }
-    );
+      });
   }, [
-    tahun,
+    periodRange.months,
     transaksi,
     saldoAwalData,
     ipk,
@@ -289,69 +275,37 @@ export default function RekapKasPage() {
       0
     );
 
-  const saldoAwalTahun =
+  const saldoAwalPeriode =
     rekap[0]?.saldoAwal ?? null;
 
-  const bulanTerakhirBerisiSaldo =
-    [...rekap]
-      .reverse()
-      .find(
-        (item) =>
-          item.saldoAkhir !== null
-      );
-
-  const saldoAkhirTahun =
-    bulanTerakhirBerisiSaldo?.saldoAkhir ??
-    null;
+  const saldoAkhirPeriode = calculateCashBalance(
+    saldoAwalPeriode,
+    totalPemasukan,
+    totalPengeluaran,
+  ).closingBalance;
+  const hasPeriodData = transaksi.length > 0 || saldoAwalData.length > 0 || ipk.length > 0;
 
   return (
     <main className="min-h-screen bg-[var(--background)] pb-8">
       <div className="mx-auto max-w-6xl px-4 py-5">
 
         {/* HEADER */}
-        <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title="Rekap Bulanan" subtitle="Ringkasan perkembangan kas tahunan" backHref="/kas" /></div>
+        <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title="Rekap Kas" subtitle="Ringkasan sesuai periode kalender" backHref="/kas" /></div>
 
-        {/* FILTER TAHUN */}
-        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-300">
+        <PeriodFilter value={period} onChange={setPeriod} />
 
-          <label className="mb-2 block text-sm font-bold text-slate-800">
-            Tahun
-          </label>
-
-          <select aria-label="Tahun"
-            value={tahun}
-            onChange={(e) =>
-              setTahun(e.target.value)
-            }
-            className="h-12 w-full rounded-xl border border-slate-400 bg-white px-4 font-medium text-slate-900 outline-none focus:border-slate-700 sm:max-w-xs"
-          >
-            {daftarTahun.map(
-              (item) => (
-                <option
-                  key={item}
-                  value={item}
-                >
-                  {item}
-                </option>
-              )
-            )}
-          </select>
-
-        </section>
-
-        {/* RINGKASAN */}
-        <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {!loading && !hasPeriodData ? <p role="status" className="type-helper rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center text-slate-600">Belum ada data kas atau IPK untuk periode {periodRange.label}.</p> : !loading && <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-300">
             <p className="text-sm font-semibold text-slate-600">
-              Saldo Awal Tahun
+              Saldo Awal Periode
             </p>
 
             <p className="mt-2 text-xl font-bold text-slate-950">
-              {saldoAwalTahun === null
+              {saldoAwalPeriode === null
                 ? "—"
                 : formatRupiah(
-                    saldoAwalTahun
+                    saldoAwalPeriode
                   )}
             </p>
           </div>
@@ -382,27 +336,27 @@ export default function RekapKasPage() {
 
           <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-lg">
             <p className="text-sm font-semibold text-slate-300">
-              Saldo Akhir Tahun
+              Saldo Akhir Periode
             </p>
 
             <p
               className={`mt-2 text-xl font-bold ${
-                saldoAkhirTahun === null
+                saldoAkhirPeriode === null
                   ? "text-slate-300"
-                  : saldoAkhirTahun >= 0
+                  : saldoAkhirPeriode >= 0
                     ? "text-emerald-300"
                     : "text-red-300"
               }`}
             >
-              {saldoAkhirTahun === null
+              {saldoAkhirPeriode === null
                 ? "—"
                 : formatRupiah(
-                    saldoAkhirTahun
+                    saldoAkhirPeriode
                   )}
             </p>
           </div>
 
-        </section>
+        </section>}
 
         {/* INFO RUMUS */}
         <section className="mb-5 rounded-2xl bg-blue-50 p-4 text-sm text-blue-900 ring-1 ring-blue-200">
@@ -417,14 +371,11 @@ export default function RekapKasPage() {
           </p>
 
           <p className="mt-2 font-medium">
-            Setiap bulan dihitung secara terpisah.
-            Saldo akhir bulan sebelumnya tidak otomatis
-            menjadi saldo awal bulan berikutnya.
+            Saldo akhir periode dihitung dari saldo awal pada bulan pertama ditambah pemasukan dan dikurangi pengeluaran selama rentang aktif. Jika saldo awal bulan pertama belum dicatat, saldo akhir ditampilkan sebagai tidak diketahui.
           </p>
 
           <p className="mt-2 font-semibold">
-            IPK (rincian pemasukan) tahun{" "}
-            {tahun}:{" "}
+            IPK (rincian pemasukan) periode {periodRange.label}:{" "}
             {formatRupiah(totalIpk)}
           </p>
 
@@ -435,11 +386,11 @@ export default function RekapKasPage() {
 
           <div className="mb-5">
             <h2 className="font-bold text-slate-950">
-              Rekap {tahun}
+              Rekap {periodRange.label}
             </h2>
 
             <p className="mt-1 text-sm font-medium text-slate-600">
-              Ringkasan Kas dari Januari sampai Desember.
+              Ringkasan Kas berdasarkan bulan kalender terpilih.
             </p>
           </div>
 
@@ -447,6 +398,8 @@ export default function RekapKasPage() {
             <div className="py-12 text-center text-sm font-semibold text-slate-600">
               Memuat rekap...
             </div>
+          ) : !hasPeriodData ? (
+            <div role="status" className="type-helper rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-slate-600">Tidak ada data untuk {periodRange.label}. Pilih periode lain untuk melihat rekap.</div>
           ) : (
             <>
 
@@ -697,10 +650,10 @@ export default function RekapKasPage() {
                       </td>
 
                       <td className="px-3 py-4 text-right font-bold text-slate-950">
-                        {saldoAwalTahun === null
+                        {saldoAwalPeriode === null
                           ? "—"
                           : formatRupiah(
-                              saldoAwalTahun
+                              saldoAwalPeriode
                             )}
                       </td>
 
@@ -724,17 +677,17 @@ export default function RekapKasPage() {
 
                       <td
                         className={`px-3 py-4 text-right font-bold ${
-                          saldoAkhirTahun === null
+                          saldoAkhirPeriode === null
                             ? "text-slate-500"
-                            : saldoAkhirTahun >= 0
+                            : saldoAkhirPeriode >= 0
                               ? "text-emerald-700"
                               : "text-red-700"
                         }`}
                       >
-                        {saldoAkhirTahun === null
+                        {saldoAkhirPeriode === null
                           ? "—"
                           : formatRupiah(
-                              saldoAkhirTahun
+                              saldoAkhirPeriode
                             )}
                       </td>
 

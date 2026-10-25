@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
-import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
+import { getDefaultReportPeriod, getReportPeriodRange, type ReportPeriodSelection } from "@/lib/report-period.mjs";
 import { parseKasNominal } from "@/lib/kas/nominal.mjs";
 import { calculateCashBalance } from "@/lib/kas/balance.mjs";
 import { summarizeKasCashflow } from "@/lib/kas/cashflow-summary.mjs";
 import { PageHeader } from "@/components/ui/AppShell";
+import { PeriodFilter } from "@/components/ui/PeriodFilter";
 import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
 import { useKasAuthority } from "@/lib/kas/use-kas-authority";
 
@@ -53,13 +54,6 @@ function formatRupiah(value: number) {
   }).format(value);
 }
 
-function formatBulan(value: string) {
-  return new Date(value + "-01").toLocaleDateString("id-ID", {
-    month: "long",
-    year: "numeric",
-  });
-}
-
 function formatTanggal(value: string) {
   return new Date(value + "T00:00:00").toLocaleDateString(
     "id-ID",
@@ -73,7 +67,8 @@ function formatTanggal(value: string) {
 
 export default function KasPage() {
   const { canManage } = useKasAuthority();
-  const [bulan, setBulan] = useState(toLocalMonthString);
+  const [period, setPeriod] = useState<ReportPeriodSelection>(getDefaultReportPeriod);
+  const periodRange = useMemo(() => getReportPeriodRange(period), [period]);
 
   const [transaksi, setTransaksi] = useState<Transaksi[]>([]);
   const [kategori, setKategori] = useState<Kategori[]>([]);
@@ -90,8 +85,6 @@ export default function KasPage() {
   const [loading, setLoading] = useState(true);
   const [savingSaldo, setSavingSaldo] = useState(false);
 
-  const { start: awalBulan, end: akhirBulan } = getMonthDateRange(bulan);
-
   const loadData = useCallback(async () => {
     setLoading(true);
 
@@ -106,8 +99,8 @@ export default function KasPage() {
         .select(
           "id, tanggal, jenis, kategori_id, keterangan, nominal, rt, sumber, penerima"
         )
-        .gte("tanggal", awalBulan)
-        .lte("tanggal", akhirBulan)
+        .gte("tanggal", periodRange.start)
+        .lte("tanggal", periodRange.end)
         .order("tanggal", { ascending: false })
         .order("id", { ascending: false }),
 
@@ -120,13 +113,14 @@ export default function KasPage() {
       supabase
         .from("kas_ipk")
         .select("id, bulan, rt, terkumpul")
-        .eq("bulan", awalBulan)
+        .gte("bulan", periodRange.start)
+        .lte("bulan", periodRange.end)
         .order("rt"),
 
       supabase
         .from("kas_saldo_awal")
         .select("id, bulan, nominal, keterangan")
-        .eq("bulan", awalBulan)
+        .eq("bulan", periodRange.start)
         .maybeSingle(),
     ]);
 
@@ -192,7 +186,7 @@ export default function KasPage() {
     );
 
     setLoading(false);
-  }, [awalBulan, akhirBulan]);
+  }, [periodRange.start, periodRange.end]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -212,7 +206,7 @@ export default function KasPage() {
 
     try {
       const payload = {
-        bulan: awalBulan,
+        bulan: periodRange.start,
         nominal,
         keterangan:
           keteranganSaldo.trim() || null,
@@ -268,6 +262,7 @@ export default function KasPage() {
   ).closingBalance;
 
   const totalIpk = cashflow.ipkBreakdown;
+  const hasPeriodData = transaksi.length > 0 || ipk.length > 0 || saldoAwalData !== null;
 
   const rekapPengeluaran = useMemo(() => {
     return kategori
@@ -302,27 +297,8 @@ export default function KasPage() {
           <PageHeader eyebrow="Nuansa Indah Ciomas" title="Kas RW 16" subtitle="Dashboard keuangan RW" backHref="/" />
         </div>
 
-        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <label className="mb-2 block text-sm font-semibold text-slate-700">
-            Periode Kas
-          </label>
-
-          <input aria-label="Periode Kas"
-            type="month"
-            value={bulan}
-            onChange={(e) =>
-              setBulan(e.target.value)
-            }
-            className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-slate-800 outline-none focus:border-slate-500"
-          />
-
-          <p className="mt-2 text-xs text-slate-500">
-            Menampilkan data bulan{" "}
-            <span className="font-semibold">
-              {formatBulan(bulan)}
-            </span>
-          </p>
-        </section>
+        <PeriodFilter value={period} onChange={setPeriod} />
+        {!loading && !hasPeriodData && <p role="status" className="type-helper rounded-xl border border-dashed border-slate-300 bg-white p-4 text-center text-slate-600">Belum ada data kas atau IPK untuk periode {periodRange.label}.</p>}
 
         <section className="mb-5">
           <div className="mb-3">
@@ -398,7 +374,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Laporan Kas bulanan dan cetak PDF.
+                Laporan kas dengan pilihan periode.
               </p>
             </Link>
 
@@ -411,7 +387,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Lihat perkembangan Kas per bulan.
+                Lihat perkembangan kas per periode.
               </p>
             </Link>
 
@@ -440,7 +416,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-xs text-slate-400">
-                {formatBulan(bulan)}
+                {periodRange.label}
               </p>
             </div>
 
@@ -473,7 +449,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm font-bold text-emerald-300">
-                {formatRupiah(totalPemasukan)}
+                {hasPeriodData ? formatRupiah(totalPemasukan) : "—"}
               </p>
             </div>
 
@@ -483,7 +459,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm font-bold text-red-300">
-                {formatRupiah(totalPengeluaran)}
+                {hasPeriodData ? formatRupiah(totalPengeluaran) : "—"}
               </p>
             </div>
 
@@ -494,11 +470,11 @@ export default function KasPage() {
 
           <div className="mb-4">
             <h2 className="font-bold text-slate-900">
-              Saldo Awal Bulan
+              Saldo Awal Periode
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Masukkan saldo yang dibawa dari bulan sebelumnya.
+              Saldo awal dicatat untuk bulan pertama pada periode aktif.
             </p>
           </div>
 
@@ -568,7 +544,7 @@ export default function KasPage() {
             </p>
 
             <p className="mt-2 text-xl font-bold text-emerald-600">
-              {formatRupiah(totalPemasukan)}
+              {hasPeriodData ? formatRupiah(totalPemasukan) : "—"}
             </p>
 
             <p className="mt-1 text-xs text-slate-400">
@@ -585,7 +561,7 @@ export default function KasPage() {
             </p>
 
             <p className="mt-2 text-xl font-bold text-red-600">
-              {formatRupiah(totalPengeluaran)}
+              {hasPeriodData ? formatRupiah(totalPengeluaran) : "—"}
             </p>
 
             <p className="mt-1 text-xs text-slate-400">
@@ -602,7 +578,7 @@ export default function KasPage() {
             </p>
 
             <p className="mt-2 text-xl font-bold text-blue-600">
-              {formatRupiah(totalIpk)}
+              {hasPeriodData ? formatRupiah(totalIpk) : "—"}
             </p>
 
             <p className="mt-1 text-xs text-slate-400">
@@ -626,7 +602,7 @@ export default function KasPage() {
 
           {rekapPengeluaran.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-500">
-              Belum ada pengeluaran pada bulan ini.
+              Belum ada pengeluaran pada periode ini.
             </div>
           ) : (
             <div className="space-y-3">
@@ -663,7 +639,7 @@ export default function KasPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Rekap IPK warga yang terkumpul bulan ini.
+              Rekap IPK warga pada periode aktif.
             </p>
           </div>
 
@@ -705,7 +681,7 @@ export default function KasPage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Transaksi Kas pada {formatBulan(bulan)}.
+                Transaksi Kas pada {periodRange.label}.
               </p>
             </div>
 
@@ -723,7 +699,7 @@ export default function KasPage() {
             </div>
           ) : transaksi.length === 0 ? (
             <div className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">
-              Belum ada transaksi pada bulan ini.
+              Belum ada transaksi pada periode ini.
             </div>
           ) : (
             <div className="space-y-3">
@@ -735,7 +711,7 @@ export default function KasPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                        className={`rounded-full px-2 py-1 type-status font-bold ${
                           item.jenis === "PEMASUKAN"
                             ? "bg-emerald-100 text-emerald-700"
                             : "bg-red-100 text-red-700"

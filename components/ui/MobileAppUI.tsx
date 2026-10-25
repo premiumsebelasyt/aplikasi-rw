@@ -41,18 +41,18 @@ export function IconTile({ name, tone = "green", className = "" }: { name: AppIc
 export function StatCard({ label, value, icon, tone = "green" }: { label: string; value: string | number; icon: AppIconName; tone?: AppIconTone }) {
   return <div className="flex min-h-[80px] items-center gap-3 rounded-2xl border border-[var(--border)] bg-white p-3.5 shadow-[0_2px_10px_rgba(16,77,50,.04)]">
     <IconTile name={icon} tone={tone} className="h-10 w-10 rounded-xl" />
-    <div className="min-w-0"><p className="truncate text-[11px] leading-4 text-slate-500">{label}</p><p className="mt-0.5 text-lg font-bold leading-6 text-slate-900">{value}</p></div>
+    <div className="min-w-0"><p className="type-metadata break-words text-slate-500">{label}</p><p className="type-metric-value mt-0.5 break-words text-slate-900">{value}</p></div>
   </div>;
 }
 
 export function MenuCard({ title, description, href, icon, tone = "green", badge }: { title: string; description: string; href: string; icon: AppIconName; tone?: AppIconTone; badge?: string }) {
   return <Link href={href} className="flex min-h-[82px] items-center gap-3 rounded-2xl border border-[var(--border)] bg-white p-3 shadow-[0_2px_10px_rgba(16,77,50,.035)] transition active:scale-[.98]">
     <IconTile name={icon} tone={tone} className="h-10 w-10 rounded-xl" />
-    <span className="min-w-0 flex-1"><span className="flex items-center gap-1.5 text-[13px] font-semibold leading-4 text-slate-900"><span className="truncate">{title}</span>{badge && <span className="grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">{badge}</span>}</span><span className="mt-1 block text-[10px] leading-4 text-slate-500">{description}</span></span>
+    <span className="min-w-0 flex-1"><span className="type-card-title flex flex-wrap items-center gap-1.5 text-slate-900"><span className="break-words">{title}</span>{badge && <span className="type-status grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-white">{badge}</span>}</span><span className="type-secondary mt-1 block break-words text-slate-500">{description}</span></span>
     <AppIcon name="arrow" className="h-4 w-4 shrink-0 rotate-[-45deg] text-slate-400" />
   </Link>;
 }
 
 export function SectionHeading({ title, action, href }: { title: string; action?: string; href?: string }) {
-  return <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-base font-bold text-slate-900">{title}</h2>{action && href && <Link href={href} className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-emerald-700">{action}<AppIcon name="arrow" className="h-3.5 w-3.5" /></Link>}</div>;
+  return <div className="mb-3 flex items-center justify-between gap-3"><h2 className="type-section-title text-slate-900">{title}</h2>{action && href && <Link href={href} className="type-button inline-flex min-h-11 items-center gap-1 text-emerald-700">{action}<AppIcon name="arrow" className="h-3.5 w-3.5" /></Link>}</div>;
 }

@@ -53,18 +53,18 @@ export default function PengaturanPage() {
         </section>
 
         <section aria-label="Daftar pengaturan">
-          <h2 className="mb-2 px-1 text-[10px] font-bold tracking-[.14em] text-slate-500">AKUN & LAYANAN</h2>
+          <h2 className="mb-2 px-1 type-status font-bold tracking-[.14em] text-slate-500">AKUN & LAYANAN</h2>
           {loading && <p role="status" className="rounded-xl bg-white p-4 text-sm text-slate-500">Memuat pengaturan…</p>}
           <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white px-3 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
             {links.map((item, index) => <Link key={item.href} href={item.href} className={`flex min-h-[68px] items-center gap-3 py-2.5 ${index ? "border-t border-slate-100" : ""}`}>
               <IconTile name={item.icon} tone={item.tone} className="h-10 w-10 rounded-xl" />
-              <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold text-slate-900">{item.title}</span><span className="mt-0.5 block truncate text-[11px] text-slate-500">{item.description}</span></span>
+              <span className="min-w-0 flex-1"><span className="block truncate type-body-small font-semibold text-slate-900">{item.title}</span><span className="mt-0.5 block truncate type-metadata text-slate-500">{item.description}</span></span>
               <AppIcon name="arrow" className="h-4 w-4 shrink-0 rotate-[-45deg] text-slate-400" />
             </Link>)}
           </div>
         </section>
 
-        <p className="px-1 text-center text-[11px] text-slate-400">Aplikasi Digital RW 16 · Nuansa Indah Ciomas</p>
+        <p className="px-1 text-center type-metadata text-slate-400">Aplikasi Digital RW 16 · Nuansa Indah Ciomas</p>
       </div>
     </main>
   );

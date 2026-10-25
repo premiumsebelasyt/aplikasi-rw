@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { toLocalMonthString } from "@/lib/date";
+import { getDefaultReportPeriod, getReportPeriodRange, type ReportPeriodSelection } from "@/lib/report-period.mjs";
+import { PeriodFilter } from "@/components/ui/PeriodFilter";
 import { buildIpkRpcPayload } from "@/lib/kas/ipk-payload.mjs";
 import { calculateIpkTotal } from "@/lib/kas/ipk-total.mjs";
 import { PageHeader } from "@/components/ui/AppShell";
@@ -34,16 +35,12 @@ function formatInput(value: number) {
   return value.toLocaleString("id-ID");
 }
 
-function formatBulan(value: string) {
-  return new Date(value + "-01").toLocaleDateString("id-ID", {
-    month: "long",
-    year: "numeric",
-  });
-}
-
 export default function IpkPage() {
   const { canManage } = useKasAuthority();
-  const [bulan, setBulan] = useState(toLocalMonthString);
+  const [period, setPeriod] = useState<ReportPeriodSelection>(getDefaultReportPeriod);
+  const periodRange = useMemo(() => getReportPeriodRange(period), [period]);
+  const bulan = periodRange.endMonth;
+  const canEditPeriod = canManage && period.mode === "monthly";
 
   const [data, setData] = useState<IpkRow[]>(
     RT_LIST.map((rt) => ({
@@ -67,7 +64,8 @@ export default function IpkPage() {
     const { data: hasil, error } = await supabase
       .from("kas_ipk")
       .select("*")
-      .eq("bulan", awalBulan)
+      .gte("bulan", periodRange.startMonth + "-01")
+      .lte("bulan", periodRange.endMonth + "-01")
       .order("rt");
 
     if (error) {
@@ -77,16 +75,25 @@ export default function IpkPage() {
       return;
     }
 
-    const hasilMap = new Map(
-      (hasil || []).map((item) => [item.rt, item])
-    );
+    const hasilMap = new Map<string, { id: number | null; bulan: string; rt: string; terkumpul: number }>();
+    for (const item of hasil || []) {
+      const existing = hasilMap.get(item.rt);
+      const isMonthlyRecord = item.bulan === awalBulan;
+      hasilMap.set(item.rt, {
+        id: isMonthlyRecord ? item.id : existing?.id ?? null,
+        bulan: item.bulan,
+        rt: item.rt,
+        terkumpul: Number(existing?.terkumpul || 0) + Number(item.terkumpul || 0),
+      });
+    }
 
     setData(
       RT_LIST.map((rt) => {
         const item = hasilMap.get(rt);
 
+        const monthlyItem = (hasil || []).find((row) => row.rt === rt && row.bulan === awalBulan);
         return {
-          id: item?.id || null,
+          id: monthlyItem?.id || null,
           bulan: awalBulan,
           rt,
           terkumpul: Number(item?.terkumpul || 0),
@@ -95,7 +102,7 @@ export default function IpkPage() {
     );
 
     setLoading(false);
-  }, [awalBulan]);
+  }, [awalBulan, periodRange.startMonth, periodRange.endMonth]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -120,13 +127,13 @@ export default function IpkPage() {
   }
 
   async function simpanSemua() {
-    if (saving || loading) return;
+    if (saving || loading || period.mode !== "monthly") return;
 
     setSaving(true);
     setSaved(false);
 
     try {
-      const payload = buildIpkRpcPayload(bulan, data, formatBulan(bulan));
+      const payload = buildIpkRpcPayload(bulan, data, periodRange.label);
 
       // The RPC makes the rekap and its linked cash entries one database transaction.
       const { data: hasil, error: ipkError } = await supabase.rpc(
@@ -181,12 +188,10 @@ export default function IpkPage() {
   const totalTerkumpul = useMemo(() => calculateIpkTotal(data), [data]);
 
   const jumlahRTTerisi = useMemo(
-    () =>
-      data.filter(
-        (item) => Number(item.terkumpul) > 0
-      ).length,
+    () => data.filter((item) => Number(item.terkumpul) > 0).length,
     [data]
   );
+  const hasPeriodData = data.some((item) => item.terkumpul > 0);
 
   return (
     <main className="min-h-screen bg-[var(--background)] pb-8">
@@ -194,23 +199,7 @@ export default function IpkPage() {
 
         <PageHeader eyebrow="Kas RW 16" title="IPK Warga" subtitle="Rekap IPK terkumpul per RT" backHref="/kas" />
 
-        {/* PERIODE */}
-        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <label className="mb-2 block text-sm font-semibold text-slate-700">
-            Periode IPK
-          </label>
-
-          <input aria-label="Periode IPK"
-            type="month"
-            value={bulan}
-            onChange={(e) => setBulan(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-slate-800 outline-none focus:border-slate-500 sm:w-auto"
-          />
-
-          <p className="mt-2 text-xs text-slate-500">
-            Pilih bulan untuk melihat atau mengubah rekap IPK.
-          </p>
-        </section>
+        <div className="mb-5"><PeriodFilter value={period} onChange={setPeriod} /></div>
 
         {/* TOTAL */}
         <section className="mb-5 rounded-3xl bg-slate-900 p-6 text-white shadow-lg">
@@ -224,7 +213,7 @@ export default function IpkPage() {
 
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-sm text-slate-400">
-              {formatBulan(bulan)}
+              {periodRange.label}
             </p>
 
             <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-slate-300">
@@ -242,9 +231,11 @@ export default function IpkPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              {canManage
-                ? "Masukkan jumlah IPK yang sudah terkumpul masing-masing RT."
-                : "Rekap IPK yang tercatat untuk masing-masing RT."}
+              {canEditPeriod
+                ? "Masukkan jumlah IPK yang terkumpul pada bulan ini untuk masing-masing RT."
+                : period.mode === "monthly"
+                  ? "Rekap IPK yang tercatat untuk bulan terpilih."
+                  : "Tampilan gabungan periode; pengubahan hanya tersedia pada mode Bulanan."}
             </p>
           </div>
 
@@ -252,6 +243,8 @@ export default function IpkPage() {
             <div className="py-10 text-center text-sm text-slate-500">
               Memuat data IPK...
             </div>
+          ) : !hasPeriodData && !canEditPeriod ? (
+            <div role="status" className="type-helper rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-slate-600">Belum ada data IPK untuk {periodRange.label}.</div>
           ) : (
             <div className="space-y-3">
               {data.map((item, index) => (
@@ -293,7 +286,7 @@ export default function IpkPage() {
                         type="text"
                         inputMode="numeric"
                         value={formatInput(item.terkumpul)}
-                        readOnly={!canManage}
+                        readOnly={!canEditPeriod}
                         onChange={(e) =>
                           ubahTerkumpul(
                             index,
@@ -332,14 +325,14 @@ export default function IpkPage() {
           )}
 
           {/* STATUS SIMPAN */}
-          {canManage && saved && (
+          {canEditPeriod && saved && (
             <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-700">
               ✓ Rekap IPK & pemasukan Kas berhasil disimpan
             </div>
           )}
 
           {/* BUTTON */}
-          {canManage && <button
+          {canEditPeriod && <button
             type="button"
             onClick={simpanSemua}
             disabled={saving || loading}
@@ -360,9 +353,7 @@ export default function IpkPage() {
 
           <p className="mt-1 leading-relaxed">
             IPK dicatat berdasarkan jumlah uang yang sudah
-            terkumpul dari masing-masing RT. Saat disimpan,
-            IPK otomatis dicatat sebagai pemasukan Kas RW
-            kategori IPK Bulanan.
+            terkumpul dari masing-masing RT. Penyimpanan dilakukan per bulan. Mode 3 Bulan, 6 Bulan, dan Tahunan hanya menampilkan akumulasi dan tidak mengubah data.
           </p>
         </div>
 

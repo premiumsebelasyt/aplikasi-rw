@@ -110,7 +110,7 @@ export default function LoginPage() {
       <div className="relative z-10 mx-auto flex min-h-[100svh] w-full max-w-[420px] flex-col justify-center pb-8 pt-7">
         <section className="w-full px-1">
           <div className="mb-5">
-            <h1 className="text-[23px] font-bold leading-7 tracking-tight text-slate-900">{mode === "register" ? "Aktivasi akun warga" : recoveryOpen ? "Lupa password?" : "Masuk ke layanan RW 16"}</h1>
+            <h1 className="type-brand-mark font-bold leading-7 tracking-tight text-slate-900">{mode === "register" ? "Aktivasi akun warga" : recoveryOpen ? "Lupa password?" : "Masuk ke layanan RW 16"}</h1>
             <p className="mt-1.5 text-sm leading-5 text-slate-500">{mode === "register" ? "Akun harus diverifikasi dan dihubungkan ke keluarga oleh pengurus RW." : recoveryOpen ? "Pemulihan online tersedia untuk akun warga yang memiliki email terdaftar." : "Gunakan username petugas atau Nomor KK 16 digit."}</p>
           </div>
 
@@ -120,11 +120,11 @@ export default function LoginPage() {
             </div>
           ) : !recoveryOpen ? (
             <form className="mt-4 space-y-3.5" onSubmit={submit}>
-              <label className="block text-[13px] font-semibold text-slate-800" htmlFor="identifier">Username / Nomor KK
+              <label className="block type-body-small font-semibold text-slate-800" htmlFor="identifier">Username / Nomor KK
                 <input id="identifier" required name="identifier" type="text" inputMode="text" autoComplete="username" maxLength={64} placeholder="Username petugas atau Nomor KK 16 digit" className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 px-3.5 text-sm font-normal outline-none placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
               </label>
 
-              <label className="block text-[13px] font-semibold text-slate-800" htmlFor="password">Password
+              <label className="block type-body-small font-semibold text-slate-800" htmlFor="password">Password
                 <span className="relative mt-1.5 block">
                   <input id="password" required name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" maxLength={1024} placeholder="Masukkan password" className="min-h-11 w-full rounded-xl border border-slate-200 px-3.5 pr-12 text-sm font-normal outline-none placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
                   <button type="button" aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"} onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-lg text-slate-500 hover:bg-slate-50">
@@ -141,10 +141,10 @@ export default function LoginPage() {
             </form>
           ) : (
             <form onSubmit={submitRecovery} className="mt-4 space-y-3 rounded-2xl bg-emerald-50/70 p-4">
-              <label className="block text-[13px] font-semibold text-slate-800" htmlFor="recovery_identifier">Username / Nomor KK
+              <label className="block type-body-small font-semibold text-slate-800" htmlFor="recovery_identifier">Username / Nomor KK
                 <input id="recovery_identifier" required name="recovery_identifier" inputMode="text" maxLength={64} autoComplete="username" placeholder="Username petugas atau Nomor KK 16 digit" className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
               </label>
-              <label className="block text-[13px] font-semibold text-slate-800" htmlFor="recovery_email">Email terdaftar (untuk akun warga)
+              <label className="block type-body-small font-semibold text-slate-800" htmlFor="recovery_email">Email terdaftar (untuk akun warga)
                 <input id="recovery_email" required type="email" name="recovery_email" autoComplete="email" placeholder="nama@email.com" className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
               </label>
               {message && <p role={messageIsError ? "alert" : "status"} className={`rounded-xl border p-3 text-sm leading-5 ${messageIsError ? "border-red-200 bg-red-50 text-red-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{message}</p>}
@@ -157,7 +157,7 @@ export default function LoginPage() {
           {recoveryOpen && <button type="button" onClick={() => { setRecoveryOpen(false); setMessage(""); }} className="mt-4 min-h-10 w-full text-center text-sm font-semibold text-emerald-700">Kembali ke masuk</button>}
         </section>
 
-        <p className="mt-4 text-center text-[10px] text-slate-500">© 2026 RW 16 Nuansa Indah Ciomas</p>
+        <p className="mt-4 text-center type-status text-slate-500">© 2026 RW 16 Nuansa Indah Ciomas</p>
       </div>
     </main>
   );

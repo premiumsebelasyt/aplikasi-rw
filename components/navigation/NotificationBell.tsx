@@ -56,6 +56,6 @@ export function NotificationBell({ countOverride }: { countOverride?: number | n
   const badge = count !== null && count > 0 ? (count > 9 ? "9+" : String(count)) : null;
   return <Link href={target} aria-label={badge ? `Notifikasi, ${count} surat berjalan` : "Notifikasi"} className="relative grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-emerald-600">
     <AppIcon name="bell" className="h-5 w-5" />
-    {badge && <span aria-hidden="true" className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white">{badge}</span>}
+    {badge && <span aria-hidden="true" className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 type-status font-bold leading-none text-white">{badge}</span>}
   </Link>;
 }

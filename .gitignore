@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# Local RW16 staff recovery credentials
+/outputs/private/

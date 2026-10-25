@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { PageHeader } from "@/components/ui/AppShell";
+import { DashboardIntro, DashboardLayout } from "@/components/ui/AppShell";
+import { SectionHeading, StatCard } from "@/components/ui/MobileAppUI";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
 import { ambilDataWarga } from "@/lib/warga/data";
 
@@ -172,69 +173,29 @@ export default function RTPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] pb-10">
-      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title={`Data RT ${rtAkun}`} subtitle={`Wilayah tugas RT ${rtAkun}`} />
-
-      <div className="mx-auto max-w-xl px-4 py-5">
+    <DashboardLayout
+      eyebrow="RW 16 · Pelayanan Warga"
+      title="Dashboard Ketua RT"
+      subtitle={`Wilayah tugas RT ${rtAkun}`}
+    >
+      <DashboardIntro eyebrow="Ketua RT" title={`RT ${rtAkun}`} description="Ringkasan tugas dan layanan wilayah" />
 
         <Link href="/surat" className="mb-4 flex min-h-14 items-center justify-between rounded-2xl bg-white px-5 font-semibold text-slate-800 shadow-sm ring-1 ring-emerald-100">
           <span className="flex items-center gap-2">Inbox surat masuk RT {rtAkun}{suratMenunggu > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">{suratMenunggu > 9 ? "9+" : suratMenunggu} baru</span>}</span><span aria-hidden="true" className="text-emerald-900">→</span>
         </Link>
 
         {/* RINGKASAN */}
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-gray-600">
-            Ringkasan RW 16
-          </p>
-
-          {loading ? (
-            <p className="mt-4 text-sm text-gray-500">
-              Memuat data...
-            </p>
-          ) : (
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-emerald-50 p-4">
-                <p className="text-xs font-semibold text-emerald-800">
-                  Total Warga
-                </p>
-
-                <p className="mt-1 text-2xl font-bold text-emerald-900">
-                  {totalWarga}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-green-50 p-4">
-                <p className="text-xs font-semibold text-green-600">
-                  Total KK
-                </p>
-
-                <p className="mt-1 text-2xl font-bold text-green-800">
-                  {totalKK}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-gray-50 p-4">
-                <p className="text-xs font-semibold text-gray-600">
-                  Laki-laki
-                </p>
-
-                <p className="mt-1 text-2xl font-bold text-gray-800">
-                  {totalLaki}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-gray-50 p-4">
-                <p className="text-xs font-semibold text-gray-600">
-                  Perempuan
-                </p>
-
-                <p className="mt-1 text-2xl font-bold text-gray-800">
-                  {totalPerempuan}
-                </p>
-              </div>
+        <section aria-label="Ringkasan wilayah">
+          <SectionHeading title="Ringkasan wilayah" />
+          {loading ? <p role="status" className="type-helper rounded-2xl border border-[var(--border)] bg-white p-4 text-slate-600">Memuat data wilayah…</p> : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatCard label="Total warga" value={totalWarga} icon="users" />
+              <StatCard label="Total KK" value={totalKK} icon="family" tone="blue" />
+              <StatCard label="Laki-laki" value={totalLaki} icon="user" tone="cyan" />
+              <StatCard label="Perempuan" value={totalPerempuan} icon="user" tone="rose" />
             </div>
           )}
-        </div>
+        </section>
 
         {/* ERROR */}
         {pesan && (
@@ -244,16 +205,8 @@ export default function RTPage() {
         )}
 
         {/* DAFTAR RT */}
-        <div className="mt-4">
-          <div className="mb-3 px-1">
-            <h2 className="font-bold text-gray-800">
-              Daftar RT
-            </h2>
-
-            <p className="mt-1 text-xs text-gray-500">
-              Statistik otomatis berdasarkan data warga RW 16
-            </p>
-          </div>
+        <section>
+          <SectionHeading title={isRtAccount ? "Ringkasan RT" : "Ringkasan per RT"} />
 
           {loading ? (
             <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
@@ -262,7 +215,7 @@ export default function RTPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               {statistikTampil.map((item) => (
                 <div
                   key={item.rt}
@@ -343,7 +296,7 @@ export default function RTPage() {
               ))}
             </div>
           )}
-        </div>
+        </section>
 
         {/* TOTAL AKTIF */}
         {!loading && (
@@ -362,7 +315,6 @@ export default function RTPage() {
           </div>
         )}
 
-      </div>
-    </main>
+    </DashboardLayout>
   );
 }

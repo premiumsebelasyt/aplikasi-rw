@@ -173,8 +173,8 @@ export default function BuatSuratPage() {
           {["Jenis", "Data", "Cek", "Selesai"].map((step, index) => {
             const activeStep = !formData.jenisSurat ? 0 : !formData.nik ? 1 : !formData.keperluan.trim() ? 2 : 2;
             const active = index <= activeStep;
-            return <li key={step} className={`relative flex flex-col items-center gap-1 text-[11px] font-medium ${active ? "text-emerald-800" : "text-slate-400"}`}>
-              <span className={`grid h-6 w-6 place-items-center rounded-full text-[10px] ${active ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span>
+            return <li key={step} className={`relative flex flex-col items-center gap-1 type-metadata font-medium ${active ? "text-emerald-800" : "text-slate-400"}`}>
+              <span className={`grid h-6 w-6 place-items-center rounded-full type-status ${active ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span>
               <span>{step}</span>
             </li>;
           })}
