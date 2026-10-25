@@ -27,12 +27,12 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 public final class MainActivity extends AppCompatActivity {
-    private static final String STAGING_ORIGIN = "https://nic16.vercel.app";
-    private static final String STAGING_HOST = "nic16.vercel.app";
+    private static final String APP_ORIGIN = "https://nic16.vercel.app";
+    private static final String APP_HOST = "nic16.vercel.app";
 
     private WebView webView;
     private ProgressBar progressBar;
-    private volatile boolean stagingPageReady;
+    private volatile boolean appPageReady;
     private long splashDeadline;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -41,7 +41,7 @@ public final class MainActivity extends AppCompatActivity {
         splashDeadline = SystemClock.uptimeMillis() + 7000L;
         SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
         splashScreen.setKeepOnScreenCondition(
-                () -> !stagingPageReady && SystemClock.uptimeMillis() < splashDeadline);
+                () -> !appPageReady && SystemClock.uptimeMillis() < splashDeadline);
         super.onCreate(savedInstanceState);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
         getWindow().setStatusBarColor(Color.rgb(248, 250, 252));
@@ -95,7 +95,7 @@ public final class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if ("https".equalsIgnoreCase(uri.getScheme())
-                        && STAGING_HOST.equalsIgnoreCase(uri.getHost())) {
+                        && APP_HOST.equalsIgnoreCase(uri.getHost())) {
                     return false;
                 }
                 if ("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme())) {
@@ -118,13 +118,13 @@ public final class MainActivity extends AppCompatActivity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
                     progressBar.setVisibility(ProgressBar.GONE);
-                    stagingPageReady = true;
+                    appPageReady = true;
                 }
             }
 
             @Override
             public void onPageCommitVisible(WebView view, String url) {
-                stagingPageReady = true;
+                appPageReady = true;
             }
         });
 
@@ -133,10 +133,10 @@ public final class MainActivity extends AppCompatActivity {
         setContentView(root);
 
         if (savedInstanceState == null) {
-            webView.loadUrl(STAGING_ORIGIN + "/");
+            webView.loadUrl(APP_ORIGIN + "/");
         } else {
             webView.restoreState(savedInstanceState);
-            if (webView.getUrl() == null) webView.loadUrl(STAGING_ORIGIN + "/");
+            if (webView.getUrl() == null) webView.loadUrl(APP_ORIGIN + "/");
         }
     }
 
