@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NIC16</string>
+    <string name="title_activity_main">NIC16</string>
+    <string name="package_name">id.nuansaindahciomas.rw16</string>
+    <string name="custom_url_scheme">id.nuansaindahciomas.rw16</string>
+</resources>

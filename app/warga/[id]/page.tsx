@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 import { ambilKategoriWarga } from "@/lib/warga/kategori";
 import { ambilDataWarga } from "@/lib/warga/data";
 import { useParams, useRouter } from "next/navigation";
@@ -130,26 +131,8 @@ export default function DetailWargaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] pb-10">
-      <header className="bg-emerald-900 px-5 py-5 text-white">
-        <div className="mx-auto max-w-xl">
-          <button
-            type="button"
-            onClick={() => router.push("/warga")}
-            className="mb-4 text-sm font-semibold text-emerald-100"
-          >
-            ← Kembali ke Data Warga
-          </button>
-
-          <p className="text-sm text-emerald-100">
-            Nuansa Indah Ciomas • RW 16
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Detail Warga
-          </h1>
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-10">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Detail Warga" backHref="/warga" />
 
       <div className="mx-auto max-w-xl px-4 py-5">
         {loading ? (

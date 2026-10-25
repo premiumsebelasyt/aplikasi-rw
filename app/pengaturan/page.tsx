@@ -1,194 +1,71 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AppIcon, IconTile, type AppIconName, type AppIconTone } from "@/components/ui/MobileAppUI";
+import { getVerifiedCurrentProfile } from "@/lib/auth/current-profile";
+import { PageHeader } from "@/components/ui/AppShell";
+
+type Role = "WARGA" | "RT" | "RW" | "BENDAHARA" | "ADMIN";
+type SettingLink = { title: string; description: string; href: string; icon: AppIconName; tone: AppIconTone; roles: Role[] };
+
+const settingLinks: SettingLink[] = [
+  { title: "Profil & Keamanan", description: "Data akun dan kata sandi", href: "/pengaturan/profil", icon: "user", tone: "violet", roles: ["WARGA", "RT", "RW", "BENDAHARA", "ADMIN"] },
+  { title: "Data Warga", description: "Cari dan kelola data warga", href: "/warga", icon: "users", tone: "green", roles: ["RT", "RW", "ADMIN"] },
+  { title: "Data RT", description: "Rekap wilayah RT 01–06", href: "/rt", icon: "building", tone: "amber", roles: ["RT", "RW", "ADMIN"] },
+  { title: "Arsip Surat", description: "Status dan riwayat surat", href: "/surat", icon: "file", tone: "blue", roles: ["WARGA", "RT", "RW", "ADMIN"] },
+  { title: "Surat Masuk RW", description: "Tinjau permintaan tanda tangan", href: "/rw/surat", icon: "inbox", tone: "rose", roles: ["RW"] },
+  { title: "Pengaturan Kas", description: "Kelola kategori kas RW", href: "/kas/pengaturan", icon: "wallet", tone: "cyan", roles: ["BENDAHARA", "ADMIN"] },
+];
 
 export default function PengaturanPage() {
+  const router = useRouter();
+  const [role, setRole] = useState<Role | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void getVerifiedCurrentProfile().then((current) => {
+      if (!active) return;
+      if (!current) {
+        setLoading(false);
+        router.replace("/login");
+        return;
+      }
+      setRole(current.profile.role as Role);
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [router]);
+
+  const links = settingLinks.filter((item) => role && item.roles.includes(role));
+
   return (
-    <main className="min-h-screen bg-slate-50 pb-24">
-      <div className="mx-auto max-w-3xl px-4 py-5">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-              SISTEM ADMINISTRASI
-            </p>
+    <main className="min-h-screen bg-[var(--background)] pb-28 text-slate-800">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Pengaturan" />
 
-            <h1 className="mt-1 text-2xl font-bold">
-              Pengaturan
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-300">
-              Pengaturan umum aplikasi RW 16 Nuansa Indah Ciomas.
-            </p>
-          </div>
-        </div>
-
-        {/* Wilayah */}
-        <section className="mb-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Wilayah
-          </p>
-
-          <h2 className="mt-1 text-lg font-bold text-slate-900">
-            Nuansa Indah Ciomas
-          </h2>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">RW</p>
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                16
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Jumlah RT</p>
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                6
-              </p>
-            </div>
-          </div>
-
-          <p className="mt-4 text-sm text-slate-500">
-            RT yang terdaftar: RT 01, RT 02, RT 03, RT 04, RT 05, dan RT 06.
-          </p>
+      <div className="mx-auto max-w-xl space-y-5 px-4 py-5">
+        <section className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+          <IconTile name="building" tone="green" />
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">Wilayah RW 16</p><p className="mt-0.5 text-xs text-slate-500">Nuansa Indah Ciomas · RT 01–06</p></div>
+          <AppIcon name="arrow" className="h-4 w-4 rotate-[-45deg] text-slate-400" />
         </section>
 
-        {/* Menu */}
-        <section className="space-y-3">
-          <Link
-            href="/pengaturan/profil"
-            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
-              AKUN
-            </p>
-
-            <h2 className="mt-1 font-bold text-slate-900">
-              Profil & keamanan
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Isi nama, NIK, nomor HP, dan ganti password akun.
-            </p>
-          </Link>
-
-          <Link
-            href="/warga"
-            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              DATA WARGA
-            </p>
-
-            <h2 className="mt-1 font-bold text-slate-900">
-              Data Warga
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Kelola dan lihat data warga RW 16.
-            </p>
-          </Link>
-
-          <Link
-            href="/rt"
-            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              DATA RT
-            </p>
-
-            <h2 className="mt-1 font-bold text-slate-900">
-              Data RT
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Rekap warga berdasarkan RT 01 sampai RT 06.
-            </p>
-          </Link>
-
-          <Link
-            href="/surat"
-            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              ADMINISTRASI
-            </p>
-
-            <h2 className="mt-1 font-bold text-slate-900">
-              Arsip Surat
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Lihat dan kelola arsip surat warga.
-            </p>
-          </Link>
-
-          <Link
-            href="/kas/pengaturan"
-            className="block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition active:scale-[0.99]"
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              KEUANGAN RW
-            </p>
-
-            <h2 className="mt-1 font-bold text-slate-900">
-              Pengaturan Kas RW
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Kelola kategori pemasukan dan pengeluaran Kas RW 16.
-            </p>
-          </Link>
+        <section aria-label="Daftar pengaturan">
+          <h2 className="mb-2 px-1 text-[10px] font-bold tracking-[.14em] text-slate-500">AKUN & LAYANAN</h2>
+          {loading && <p role="status" className="rounded-xl bg-white p-4 text-sm text-slate-500">Memuat pengaturan…</p>}
+          <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white px-3 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+            {links.map((item, index) => <Link key={item.href} href={item.href} className={`flex min-h-[68px] items-center gap-3 py-2.5 ${index ? "border-t border-slate-100" : ""}`}>
+              <IconTile name={item.icon} tone={item.tone} className="h-10 w-10 rounded-xl" />
+              <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold text-slate-900">{item.title}</span><span className="mt-0.5 block truncate text-[11px] text-slate-500">{item.description}</span></span>
+              <AppIcon name="arrow" className="h-4 w-4 shrink-0 rotate-[-45deg] text-slate-400" />
+            </Link>)}
+          </div>
         </section>
 
-        {/* Info */}
-        <div className="mt-6 rounded-2xl bg-slate-100 p-4 text-center">
-          <p className="text-xs text-slate-500">
-            Nuansa Indah Ciomas · RW 16
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            Sistem Administrasi Digital
-          </p>
-        </div>
+        <p className="px-1 text-center text-[11px] text-slate-400">Aplikasi Digital RW 16 · Nuansa Indah Ciomas</p>
       </div>
-
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto grid max-w-3xl grid-cols-4">
-          <Link
-            href="/"
-            className="flex flex-col items-center gap-1 py-3 text-xs text-slate-500"
-          >
-            <span className="text-lg">⌂</span>
-            <span>Beranda</span>
-          </Link>
-
-          <Link
-            href="/surat"
-            className="flex flex-col items-center gap-1 py-3 text-xs text-slate-500"
-          >
-            <span className="text-lg">▤</span>
-            <span>Surat</span>
-          </Link>
-
-          <Link
-            href="/warga"
-            className="flex flex-col items-center gap-1 py-3 text-xs text-slate-500"
-          >
-            <span className="text-lg">♙</span>
-            <span>Warga</span>
-          </Link>
-
-          <Link
-            href="/pengaturan"
-            className="flex flex-col items-center gap-1 py-3 text-xs font-semibold text-slate-900"
-          >
-            <span className="text-lg">⚙</span>
-            <span>Pengaturan</span>
-          </Link>
-        </div>
-      </nav>
     </main>
   );
 }

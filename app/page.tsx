@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getVerifiedCurrentProfile } from "@/lib/auth/current-profile";
+import { ambilKategoriWarga } from "@/lib/warga/kategori";
+import { AppIcon, IconTile, MenuCard, SectionHeading, StatCard } from "@/components/ui/MobileAppUI";
+import { PageHeader } from "@/components/ui/AppShell";
+import { calculateWeeklyKasRecap, getFridayThursdayRange } from "@/lib/kas/weekly-recap.mjs";
+import type { KasWeekRecap } from "@/lib/kas/weekly-recap.mjs";
 
 type FamilyMember = {
   id: number;
@@ -15,6 +20,7 @@ type FamilyMember = {
   alamat: string | null;
   jenis_kelamin: string | null;
   status_warga: string | null;
+  kategori: string[];
 };
 
 type FamilyLetter = {
@@ -37,27 +43,28 @@ const portalByRole: Record<string, string> = {
   RT: "/rt",
   RW: "/",
   BENDAHARA: "/kas",
-  ADMIN: "/",
+  ADMIN: "/menu",
 };
 
 function labelStatus(status: string) {
   const labels: Record<string, string> = {
-    DRAFT: "Menunggu TTD RT",
-    DIAJUKAN: "Diajukan",
-    MENUNGGU_TTD_RT: "Menunggu tanda tangan RT",
+    DRAFT: "Draft",
+    MENUNGGU_RT: "Menunggu pemeriksaan RT",
+    DISETUJUI_RT: "Disetujui RT",
     MENUNGGU_RW: "Menunggu RW",
-    MENUNGGU_TTD_RW: "Menunggu tanda tangan RW",
-    DISETUJUI: "Disetujui",
-    SELESAI: "Selesai",
-    DITOLAK: "Ditolak",
+    DISETUJUI_RW: "Disetujui RW · PDF menunggu",
+    PERLU_PERBAIKAN: "Perlu perbaikan",
+    FINALIZING_PDF: "Finalisasi PDF",
+    PDF_RETRY: "PDF perlu dicoba ulang",
     TERBIT: "Terbit",
+    DIBATALKAN: "Dibatalkan",
   };
   return labels[status] ?? status.replaceAll("_", " ");
 }
 
 function statusStyle(status: string) {
-  if (["SELESAI", "TERBIT", "DISETUJUI"].includes(status)) return "bg-emerald-50 text-emerald-800";
-  if (status === "DITOLAK") return "bg-red-50 text-red-800";
+  if (["TERBIT", "DISETUJUI_RW"].includes(status)) return "bg-emerald-50 text-emerald-800";
+  if (status === "PERLU_PERBAIKAN") return "bg-red-50 text-red-800";
   if (status === "DRAFT") return "bg-slate-100 text-slate-700";
   return "bg-amber-50 text-amber-800";
 }
@@ -70,6 +77,8 @@ export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [staffRole, setStaffRole] = useState<string | null>(null);
   const [rwRequests, setRwRequests] = useState<number | null>(null);
+  const [rwWeeklyRecap, setRwWeeklyRecap] = useState<KasWeekRecap | null>(null);
+  const [rwWeeklyError, setRwWeeklyError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -83,24 +92,42 @@ export default function Home() {
         router.replace("/login");
         return;
       }
-      const { user, profile } = current;
+      const { profile } = current;
 
       if (profile.role !== "WARGA") {
-        if (profile.role === "RW" || profile.role === "ADMIN") {
-          setStaffRole(profile.role);
-          const { count, error: requestsError } = await supabase
-            .from("surat")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "MENUNGGU_RW");
+        if (profile.role === "RW") {
+          setStaffRole("RW");
+          const range = getFridayThursdayRange();
+          const monthStart = `${range.start.slice(0, 7)}-01`;
+          const [requestsResult, transactionsResult, openingResult] = await Promise.all([
+            supabase.from("surat").select("id", { count: "exact", head: true }).eq("status", "MENUNGGU_RW"),
+            supabase.from("kas_transaksi").select("tanggal, jenis, nominal").gte("tanggal", monthStart).lte("tanggal", range.end).order("tanggal", { ascending: true }),
+            supabase.from("kas_saldo_awal").select("nominal").eq("bulan", monthStart).maybeSingle(),
+          ]);
           if (!active) return;
-          setRwRequests(requestsError ? null : count ?? 0);
+          setRwRequests(requestsResult.error ? null : requestsResult.count ?? 0);
+          if (transactionsResult.error || openingResult.error) {
+            setRwWeeklyError("Rekap kas Jumat–Kamis belum dapat dimuat.");
+          } else {
+            try {
+              setRwWeeklyRecap(calculateWeeklyKasRecap(
+                (transactionsResult.data ?? []).map((row) => ({ ...row, nominal: Number(row.nominal) })),
+                openingResult.data ? Number(openingResult.data.nominal) : null,
+                range,
+              ));
+            } catch {
+              setRwWeeklyError("Data rekap kas Jumat–Kamis tidak valid.");
+            }
+          }
           setLoading(false);
           return;
         }
         router.replace(portalByRole[profile.role] ?? "/login");
         return;
       }
-      const noKK = String(profile.no_kk ?? user.user_metadata?.no_kk ?? "");
+      // Authorization scope comes only from the verified database profile.
+      // Auth user_metadata is user-editable and must never widen family access.
+      const noKK = String(profile.no_kk ?? "");
       if (!noKK) {
         setError("Akun ini belum terhubung ke KK. Hubungi administrator RW.");
         setLoading(false);
@@ -119,7 +146,27 @@ export default function Home() {
         return;
       }
 
-      const family = members ?? [];
+      let family = (members ?? []).map((member) => ({ ...member, kategori: [] as string[] }));
+      if (family.length > 0) {
+        try {
+          const categoryData = await ambilKategoriWarga();
+          if (!active) return;
+          family = family.map((member) => {
+            const categoryIds = new Set(categoryData.relations
+              .filter((relation) => relation.warga_id === member.id)
+              .map((relation) => relation.kategori_id));
+            return {
+              ...member,
+              kategori: categoryData.categories
+                .filter((category) => categoryIds.has(category.id))
+                .map((category) => category.nama),
+            };
+          });
+        } catch {
+          if (!active) return;
+          setError("Data keluarga termuat, tetapi kategori anggota belum dapat dibaca.");
+        }
+      }
       let letters: FamilyLetter[] = [];
       let pendingLetters = 0;
       if (family.length > 0) {
@@ -127,7 +174,7 @@ export default function Home() {
         const [recentResult, pendingResult] = await Promise.all([
           supabase
             .from("surat")
-            .select("id, jenis_surat, keperluan, status, created_at")
+            .select("id, jenis_surat, payload, status, created_at")
             .in("warga_id", familyIds)
             .order("created_at", { ascending: false })
             .limit(5),
@@ -135,7 +182,7 @@ export default function Home() {
             .from("surat")
             .select("id", { count: "exact", head: true })
             .in("warga_id", familyIds)
-            .in("status", ["DRAFT", "MENUNGGU_RW", "DISETUJUI"]),
+            .in("status", ["DRAFT", "MENUNGGU_RT", "DISETUJUI_RT", "MENUNGGU_RW", "PERLU_PERBAIKAN"]),
         ]);
         if (!active) return;
         if (recentResult.error) {
@@ -150,7 +197,10 @@ export default function Home() {
           setLoading(false);
           return;
         }
-        letters = recentResult.data ?? [];
+        letters = (recentResult.data ?? []).map((letter) => ({
+          ...letter,
+          keperluan: typeof letter.payload?.keperluan === "string" ? letter.payload.keperluan : null,
+        }));
         pendingLetters = pendingResult.error ? 0 : pendingResult.count ?? 0;
       }
 
@@ -168,194 +218,104 @@ export default function Home() {
     return () => { active = false; };
   }, [refreshKey, router]);
 
-  if (staffRole) {
-    const menu = [
-      { title: "Arsip Surat", description: "Lihat surat yang tersimpan", href: "/surat", icon: "📂" },
-      { title: "Data Warga", description: "Kelola data warga RW 16", href: "/warga", icon: "👥" },
-      { title: "Data RT", description: "RT 01 sampai RT 06", href: "/rt", icon: "🏘️" },
-      { title: "Pengaturan", description: "Pengaturan aplikasi", href: "/pengaturan", icon: "⚙️" },
-    ];
-
+  if (loading) {
     return (
-      <main className="min-h-screen bg-[#f1f3f5] pb-24 text-slate-800">
-        <header className="bg-emerald-800 px-5 py-6 text-white">
-          <div className="mx-auto max-w-xl">
-            <p className="text-sm text-emerald-100">Nuansa Indah Ciomas</p>
-            <h1 className="mt-1 text-2xl font-bold">RW 16</h1>
-            <p className="mt-1 text-sm text-emerald-100">Pelayanan Administrasi Digital</p>
-          </div>
-        </header>
-        <div className="mx-auto max-w-xl space-y-4 px-4 py-5">
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Pengguna</p>
-            <h2 className="mt-1 text-lg font-bold text-slate-900">{staffRole === "ADMIN" ? "Admin RW" : "Ketua RW"}</h2>
-            <p className="mt-1 text-sm text-slate-500">Sistem Administrasi RW 16</p>
-          </section>
-
-          <div className="rounded-2xl bg-emerald-700 p-5 text-white shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm text-emerald-100">Pelayanan</p>
-                <h2 className="mt-1 text-xl font-bold">Buat Surat</h2>
-                <p className="mt-1 text-sm text-emerald-100">Buat surat administrasi warga</p>
-              </div>
-              <span className="text-3xl" aria-hidden="true">📝</span>
-            </div>
-            <p className="mt-4 inline-flex min-h-10 items-center rounded-xl bg-white/15 px-4 text-sm font-semibold text-white/90">Tersedia untuk akun Kepala Keluarga</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-          {menu.map((item) => {
-            return <Link key={item.title} href={item.href} className="min-h-32 rounded-2xl bg-white p-5 shadow-sm transition hover:shadow-md">
-              <span className="text-3xl" aria-hidden="true">{item.icon}</span>
-              <span className="mt-3 block font-bold text-slate-900">{item.title}</span>
-              <span className="mt-1 block text-xs leading-5 text-slate-500">{item.description}</span>
-            </Link>;
-          })}
-          </div>
-
-          {staffRole === "ADMIN" ? (
-            <Link href="/kas" className="block rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Keuangan RW</p>
-              <div className="mt-1 flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Kas RW</h2><p className="mt-1 text-sm text-slate-600">Kelola pemasukan, pengeluaran, IPK, dan laporan Kas RW 16.</p></div><span className="text-2xl" aria-hidden="true">💰</span></div>
-              <span className="mt-4 block border-t border-slate-100 pt-3 text-sm font-semibold text-emerald-700">Buka Kas RW <span className="float-right">→</span></span>
-            </Link>
-          ) : (
-            <section className="block rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm opacity-90">
-              <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Keuangan RW</p>
-              <div className="mt-1 flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Kas RW</h2><p className="mt-1 text-sm text-slate-600">Kelola pemasukan, pengeluaran, IPK, dan laporan Kas RW 16.</p></div><span className="text-2xl" aria-hidden="true">💰</span></div>
-              <span className="mt-4 block border-t border-slate-100 pt-3 text-sm font-semibold text-emerald-700">Khusus Bendahara / Admin RW <span className="float-right">🔒</span></span>
-            </section>
-          )}
-
-          <Link href="/rw/surat" className="block rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm ring-1 ring-emerald-100">
-            <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Khusus RW / Admin</p>
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <div><h2 className="text-lg font-bold text-slate-900">Surat Masuk RW</h2><p className="mt-1 text-sm text-slate-600">Review surat yang diajukan RT</p></div>
-              <span className="relative text-2xl" aria-hidden="true">📥{rwRequests !== null && rwRequests > 0 && <span className="absolute -right-3 -top-2 grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">{rwRequests > 9 ? "9+" : rwRequests}</span>}</span>
-            </div>
-            <p className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${rwRequests === null ? "bg-slate-50 text-slate-500" : rwRequests > 0 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>
-              {rwRequests === null ? "Notifikasi surat belum dapat dimuat" : rwRequests > 0 ? `${rwRequests} permintaan tanda tangan menunggu ditinjau` : "Tidak ada permintaan tanda tangan baru"}
-            </p>
-          </Link>
-
-          <section className="flex items-center justify-between rounded-2xl bg-white p-5 shadow-sm">
-            <div><p className="text-sm text-slate-500">Wilayah</p><h2 className="mt-1 font-bold text-slate-900">Nuansa Indah Ciomas</h2><p className="mt-1 text-sm text-slate-500">RW 16 · RT 01–06</p></div><span className="text-3xl" aria-hidden="true">🏠</span>
-          </section>
-
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between"><h2 className="font-bold text-slate-900">Surat Terbaru</h2><Link href="/surat" className="text-sm font-semibold text-emerald-700">Lihat Semua</Link></div>
-            <p className="mt-4 text-sm text-slate-500">Belum ada daftar surat yang ditampilkan.</p>
-          </section>
-        </div>
-
-        <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur">
-          <div className="mx-auto grid max-w-xl grid-cols-4">
-            <Link href="/" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-semibold text-emerald-800"><span className="text-lg">⌂</span>Beranda</Link>
-            <Link href="/surat" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="text-lg">▤</span>Surat</Link>
-            <Link href="/warga" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="text-lg">♟</span>Warga</Link>
-            <Link href="/pengaturan" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="text-lg">⚙</span>Pengaturan</Link>
-          </div>
-        </nav>
+      <main
+        aria-busy="true"
+        className="grid min-h-screen place-items-center bg-[var(--background)] px-4 text-slate-500"
+      >
+        <p role="status" className="text-sm">Memverifikasi sesi akun…</p>
       </main>
     );
   }
 
+  const isStaff = Boolean(staffRole);
+  const rtLabel = dashboard?.members[0]?.rt ? `RT ${dashboard.members[0].rt} · RW 16` : "Warga · RW 16";
+  const staffMenu = [
+    { title: "Surat Masuk RW", description: "Permintaan tanda tangan", href: "/rw/surat", icon: "inbox" as const, tone: "rose" as const, badge: rwRequests && rwRequests > 0 ? String(rwRequests > 9 ? "9+" : rwRequests) : undefined },
+    { title: "Arsip Surat", description: "Riwayat semua surat", href: "/surat", icon: "file" as const, tone: "blue" as const },
+    { title: "Data Warga", description: "Kelola data warga", href: "/warga", icon: "users" as const, tone: "green" as const },
+    { title: "Data RT", description: "Wilayah RT 01–06", href: "/rt", icon: "building" as const, tone: "amber" as const },
+    { title: "Pengaturan", description: "Profil dan aplikasi", href: "/pengaturan", icon: "settings" as const, tone: "cyan" as const },
+  ];
+
   return (
-    <main className="min-h-screen bg-[#f5f7f4] pb-24 text-slate-800">
-      <header className="bg-emerald-900 px-5 pb-8 pt-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm text-emerald-100">Nuansa Indah Ciomas</p>
-              <p className="mt-1 text-xs text-emerald-200">RW 16 · RT 01–06</p>
-            </div>
-            <Link href="/pengaturan" aria-label="Pengaturan akun" className="grid min-h-11 min-w-11 place-items-center rounded-full bg-white/10 text-lg hover:bg-white/20">⚙</Link>
-          </div>
-          <p className="mt-8 text-sm text-emerald-100">Dashboard keluarga</p>
-          <h1 className="mt-1 text-2xl font-bold">{loading ? "Memuat akun…" : dashboard ? `Halo, ${dashboard.name}` : "Akun Kepala Keluarga"}</h1>
-          {dashboard && <p className="mt-2 text-sm text-emerald-100">No. KK {dashboard.noKK}</p>}
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-28 text-slate-800">
+      <PageHeader
+        brand
+        eyebrow="RW 16 · Pelayanan Warga"
+        title="Nuansa Indah Ciomas"
+        notificationCount={isStaff ? rwRequests : undefined}
+      />
 
-      <div className="mx-auto -mt-4 max-w-xl space-y-4 px-4">
-        {loading && <section className="rounded-2xl bg-white p-5 text-sm text-slate-500 shadow-sm">Memuat data keluarga…</section>}
-        {error && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          <p>{error}</p>
-          {!dashboard && <button type="button" onClick={() => setRefreshKey((value) => value + 1)} className="mt-2 font-semibold underline">Coba lagi</button>}
-        </section>}
+      <div className="mx-auto max-w-xl space-y-5 px-4 pb-5 pt-4">
+        <section className="relative overflow-hidden rounded-[22px] bg-gradient-to-br from-emerald-700 to-emerald-800 p-5 text-white shadow-[0_10px_24px_rgba(5,115,70,.16)]">
+          <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full border-[18px] border-white/5" />
+          <p className="relative text-xs font-medium text-emerald-100">Selamat datang,</p>
+          <h1 className="relative mt-1 text-xl font-bold tracking-tight">{loading ? "Memuat akun…" : isStaff ? "Ketua RW" : dashboard ? dashboard.name : "Kepala Keluarga"}</h1>
+          <p className="relative mt-1 text-xs text-emerald-100">{isStaff ? "RW 16 · RT 01–06" : rtLabel}</p>
+        </section>
 
-        {dashboard && <>
-          <Link href="/buat-surat" className="flex min-h-24 items-center justify-between rounded-2xl bg-white p-5 shadow-sm ring-1 ring-emerald-100 transition hover:shadow-md">
-            <div>
-              <p className="text-sm font-semibold text-emerald-800">Pelayanan keluarga</p>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">Ajukan surat</h2>
-              <p className="mt-1 text-sm text-slate-500">Mulai pengajuan administrasi warga</p>
-            </div>
-            <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-2xl">📝</span>
-          </Link>
-
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Satu akun untuk satu KK</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Anggota keluarga</h2>
-              </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">{dashboard.members.length}</span>
-            </div>
-            {dashboard.members.length === 0 ? <p className="mt-4 text-sm text-slate-500">Belum ada anggota yang terhubung ke nomor KK ini.</p> : (
-              <ul className="mt-4 divide-y divide-slate-100">
-                {dashboard.members.map((member) => (
-                  <li key={member.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-800">{member.nama}</p>
-                      <p className="mt-1 text-xs text-slate-500">{member.nik} · RT {member.rt}</p>
-                    </div>
-                    {member.status_warga && <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">{member.status_warga}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
+        {isStaff ? <>
+          <section aria-label="Ringkasan RW" className="grid grid-cols-2 gap-3">
+            <StatCard label="Menunggu tanda tangan RW" value={rwRequests ?? "—"} icon="inbox" tone="amber" />
+            <StatCard label="Wilayah RT terdaftar" value="6" icon="building" tone="blue" />
           </section>
-
-          <section className="rounded-2xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Status dan riwayat</p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900">Surat keluarga</h2>
+          <section aria-label="Rekap kas mingguan" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+            <SectionHeading title="Rekap Kas Jumat–Kamis" action="Lihat kas" href="/kas" />
+            {rwWeeklyError ? <p role="alert" className="text-sm text-amber-800">{rwWeeklyError}</p> : rwWeeklyRecap ? <>
+              <p className="text-xs text-slate-500">{new Date(`${rwWeeklyRecap.start}T12:00:00`).toLocaleDateString("id-ID", { dateStyle: "medium" })} – {new Date(`${rwWeeklyRecap.end}T12:00:00`).toLocaleDateString("id-ID", { dateStyle: "medium" })}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <p className="rounded-xl bg-slate-50 p-3"><span className="block text-xs text-slate-500">Saldo awal Jumat</span><strong>{rwWeeklyRecap.openingBalance === null ? "Belum tersedia" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.openingBalance)}</strong></p>
+                <p className="rounded-xl bg-emerald-50 p-3"><span className="block text-xs text-emerald-700">Pemasukan</span><strong>{rwWeeklyRecap.income === null ? "—" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.income)}</strong></p>
+                <p className="rounded-xl bg-rose-50 p-3"><span className="block text-xs text-rose-700">Pengeluaran</span><strong>{rwWeeklyRecap.expenses === null ? "—" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.expenses)}</strong></p>
+                <p className="rounded-xl bg-slate-900 p-3 text-white"><span className="block text-xs text-slate-300">Saldo akhir Kamis</span><strong>{rwWeeklyRecap.closingBalance === null ? "Belum tersedia" : new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(rwWeeklyRecap.closingBalance)}</strong></p>
               </div>
-              <Link href="/surat" className="min-h-10 inline-flex items-center text-sm font-semibold text-emerald-800">Lihat semua</Link>
-            </div>
-            {dashboard.pendingLetters > 0 && <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800"><span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />{dashboard.pendingLetters} surat masih diproses</p>}
-            {dashboard.letters.length === 0 ? <p className="mt-4 text-sm text-slate-500">Belum ada surat untuk keluarga ini.</p> : (
-              <ul className="mt-3 space-y-3">
-                {dashboard.letters.map((letter) => (
-                  <li key={letter.id}>
-                    <Link href={`/surat/${letter.id}`} className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3 transition hover:bg-slate-100">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-slate-800">{letter.jenis_surat}</p>
-                        <p className="mt-1 text-xs text-slate-500">{new Date(letter.created_at).toLocaleDateString("id-ID", { dateStyle: "medium" })}</p>
-                      </div>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle(letter.status)}`}>{labelStatus(letter.status)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">Saldo awal memakai saldo bulanan tercatat untuk bulan yang memuat hari Jumat, ditambah transaksi sejak awal bulan hingga Kamis sebelumnya. Pemasukan IPK diambil dari ledger transaksi RW16.</p>
+            </> : <p role="status" className="text-sm text-slate-500">Memuat rekap kas…</p>}
           </section>
+          <section>
+            <SectionHeading title="Menu Utama" action="Lihat menu" href="/menu" />
+            <div className="grid grid-cols-2 gap-2.5">{staffMenu.slice(0, 4).map((item) => <MenuCard key={item.title} {...item} />)}</div>
+          </section>
+          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+            <SectionHeading title="Permintaan surat" action="Buka inbox" href="/rw/surat" />
+            <Link href="/rw/surat" className={`flex items-center gap-3 rounded-xl px-3 py-3 ${rwRequests ? "bg-amber-50" : "bg-emerald-50"}`}>
+              <IconTile name="inbox" tone={rwRequests ? "amber" : "green"} className="h-9 w-9 rounded-xl" />
+              <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900">{rwRequests === null ? "Notifikasi belum termuat" : rwRequests ? `${rwRequests} surat menunggu ditinjau` : "Tidak ada permintaan baru"}</p><p className="mt-0.5 text-[11px] text-slate-500">Surat yang menunggu tanda tangan RW</p></div>
+              <AppIcon name="arrow" className="h-4 w-4 text-slate-400" />
+            </Link>
+          </section>
+          <section className="grid grid-cols-2 gap-2.5">{staffMenu.slice(4).map((item) => <MenuCard key={item.title} {...item} />)}</section>
+        </> : <>
+          {loading && <section className="rounded-2xl bg-white p-4 text-sm text-slate-500">Memuat data keluarga…</section>}
+          {error && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><p>{error}</p>{!dashboard && <button type="button" onClick={() => setRefreshKey((value) => value + 1)} className="mt-2 font-semibold underline">Coba lagi</button>}</section>}
+          {dashboard && <>
+            <section className="grid grid-cols-2 gap-3">
+              <StatCard label="Anggota keluarga" value={dashboard.members.length} icon="family" tone="green" />
+              <StatCard label="Surat diproses" value={dashboard.pendingLetters} icon="file" tone="violet" />
+            </section>
+            <section>
+              <SectionHeading title="Menu Utama" action="Lihat menu" href="/menu" />
+              <div className="grid grid-cols-2 gap-2.5">
+                <MenuCard title="Buat Surat" description="Ajukan surat keluarga" href="/buat-surat" icon="plus" tone="green" />
+                <MenuCard title="Surat Saya" description="Status dan riwayat" href="/surat" icon="file" tone="blue" />
+                <MenuCard title="Data Keluarga" description="Anggota dalam KK" href="#anggota-keluarga" icon="family" tone="violet" />
+                <MenuCard title="Pengaturan" description="Profil dan keamanan" href="/pengaturan" icon="settings" tone="amber" />
+              </div>
+            </section>
+            <section id="anggota-keluarga" className="scroll-mt-20 rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+              <SectionHeading title="Anggota keluarga" />
+              {dashboard.members.length === 0 ? <p className="text-sm text-slate-500">Belum ada anggota yang terhubung ke nomor KK ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.members.map((member) => <li key={member.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="user" tone="cyan" className="h-9 w-9 rounded-full" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-900">{member.nama}</p><p className="mt-0.5 text-[11px] text-slate-500">RT {member.rt}{member.status_warga ? ` · ${member.status_warga}` : ""}</p>{member.kategori.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{member.kategori.map((category) => <span key={category} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800">{category}</span>)}</div>}</div></li>)}</ul>}
+            </section>
+            <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_10px_rgba(16,77,50,.035)]">
+              <SectionHeading title="Surat terbaru" action="Lihat semua" href="/surat" />
+              {dashboard.pendingLetters > 0 && <p className="mb-3 text-xs text-amber-800">{dashboard.pendingLetters} surat masih diproses</p>}
+              {dashboard.letters.length === 0 ? <p className="text-sm text-slate-500">Belum ada surat untuk keluarga ini.</p> : <ul className="divide-y divide-slate-100">{dashboard.letters.map((letter) => <li key={letter.id}><Link href={`/surat/${letter.id}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><IconTile name="file" tone="green" className="h-9 w-9 rounded-xl" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-900">{letter.jenis_surat}</span><span className="mt-0.5 block text-[11px] text-slate-500">{new Date(letter.created_at).toLocaleDateString("id-ID", { dateStyle: "medium" })}</span></span><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${statusStyle(letter.status)}`}>{labelStatus(letter.status)}</span></Link></li>)}</ul>}
+            </section>
+          </>}
         </>}
-
-        <Link href="/pengaturan/profil" className="block rounded-2xl bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm">Profil & keamanan <span className="float-right text-slate-400">→</span></Link>
       </div>
-
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto grid max-w-xl grid-cols-4">
-          <Link href="/" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-semibold text-emerald-800"><span className="text-lg">⌂</span>Beranda</Link>
-          <Link href="/surat" className="relative flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="relative text-lg">▤{dashboard && dashboard.pendingLetters > 0 && <span className="absolute -right-3 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-600 px-1 text-[9px] font-bold leading-none text-white">{dashboard.pendingLetters > 9 ? "9+" : dashboard.pendingLetters}</span>}</span>Surat</Link>
-          <Link href="/buat-surat" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="text-lg">＋</span>Ajukan</Link>
-          <Link href="/pengaturan" className="flex min-h-16 flex-col items-center justify-center gap-1 text-xs text-slate-500"><span className="text-lg">⚙</span>Akun</Link>
-        </div>
-      </nav>
     </main>
   );
 }

@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { toLocalMonthString } from "@/lib/date";
+import { buildIpkRpcPayload } from "@/lib/kas/ipk-payload.mjs";
+import { calculateIpkTotal } from "@/lib/kas/ipk-total.mjs";
+import { PageHeader } from "@/components/ui/AppShell";
+import { useKasAuthority } from "@/lib/kas/use-kas-authority";
 
 type IpkRow = {
   id: number | null;
@@ -39,6 +42,7 @@ function formatBulan(value: string) {
 }
 
 export default function IpkPage() {
+  const { canManage } = useKasAuthority();
   const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [data, setData] = useState<IpkRow[]>(
@@ -122,169 +126,19 @@ export default function IpkPage() {
     setSaved(false);
 
     try {
-      /*
-       * =====================================================
-       * 1. AMBIL KATEGORI IPK BULANAN
-       * =====================================================
-       */
+      const payload = buildIpkRpcPayload(bulan, data, formatBulan(bulan));
 
-      const { data: kategori, error: kategoriError } = await supabase
-        .from("kas_kategori")
-        .select("id, nama, jenis")
-        .eq("jenis", "PEMASUKAN")
-        .ilike("nama", "IPK Bulanan")
-        .limit(1)
-        .maybeSingle();
+      // The RPC makes the rekap and its linked cash entries one database transaction.
+      const { data: hasil, error: ipkError } = await supabase.rpc(
+        "save_kas_ipk_month",
+        payload
+      );
 
-      if (kategoriError) {
-        throw new Error(
-          `Gagal mengambil kategori IPK Bulanan: ${kategoriError.message}`
-        );
+      if (ipkError || !hasil) {
+        throw new Error(`Gagal menyimpan IPK: ${ipkError?.message ?? "respons database kosong"}`);
       }
 
-      if (!kategori) {
-        throw new Error(
-          'Kategori "IPK Bulanan" belum tersedia di kas_kategori.'
-        );
-      }
-
-      /*
-       * =====================================================
-       * 2. SIMPAN REKAP IPK PER RT
-       * =====================================================
-       */
-
-      const payload = data.map((item) => ({
-        bulan: awalBulan,
-        rt: item.rt,
-        terkumpul: item.terkumpul,
-      }));
-
-      const { data: hasil, error: ipkError } = await supabase
-        .from("kas_ipk")
-        .upsert(payload, {
-          onConflict: "bulan,rt",
-        })
-        .select("*");
-
-      if (ipkError) {
-        throw new Error(
-          `Gagal menyimpan IPK: ${ipkError.message}`
-        );
-      }
-
-      /*
-       * =====================================================
-       * 3. SINKRONISASI IPK → TRANSAKSI KAS
-       *
-       * Tidak menggunakan ON CONFLICT kas_ipk_id.
-       *
-       * Logika:
-       * - transaksi sudah ada → UPDATE
-       * - transaksi belum ada → INSERT
-       * - IPK = 0 → hapus transaksi IPK
-       * =====================================================
-       */
-
-      for (const item of hasil || []) {
-        const nominal = Number(item.terkumpul || 0);
-
-        const keterangan = `IPK Bulanan RT ${item.rt} - ${formatBulan(
-          bulan
-        )}`;
-
-        /*
-         * Cari transaksi yang sudah terhubung
-         */
-        const { data: transaksiLama, error: cariError } = await supabase
-          .from("kas_transaksi")
-          .select("id")
-          .eq("kas_ipk_id", item.id)
-          .maybeSingle();
-
-        if (cariError) {
-          throw new Error(
-            `Gagal mencari transaksi IPK RT ${item.rt}: ${cariError.message}`
-          );
-        }
-
-        /*
-         * =================================================
-         * IPK > 0
-         * =================================================
-         */
-
-        if (nominal > 0) {
-          /*
-           * UPDATE TRANSAKSI LAMA
-           */
-          if (transaksiLama) {
-            const { error: updateError } = await supabase
-              .from("kas_transaksi")
-              .update({
-                tanggal: awalBulan,
-                jenis: "PEMASUKAN",
-                kategori_id: kategori.id,
-                keterangan,
-                nominal,
-                rt: item.rt,
-                sumber: "IPK Warga",
-              })
-              .eq("id", transaksiLama.id);
-
-            if (updateError) {
-              throw new Error(
-                `Gagal memperbarui transaksi IPK RT ${item.rt}: ${updateError.message}`
-              );
-            }
-          }
-
-          /*
-           * INSERT TRANSAKSI BARU
-           */
-          else {
-            const { error: insertError } = await supabase
-              .from("kas_transaksi")
-              .insert({
-                kas_ipk_id: item.id,
-                tanggal: awalBulan,
-                jenis: "PEMASUKAN",
-                kategori_id: kategori.id,
-                keterangan,
-                nominal,
-                rt: item.rt,
-                sumber: "IPK Warga",
-              });
-
-            if (insertError) {
-              throw new Error(
-                `Gagal membuat transaksi IPK RT ${item.rt}: ${insertError.message}`
-              );
-            }
-          }
-        }
-
-        /*
-         * =================================================
-         * IPK = 0
-         *
-         * Hapus transaksi IPK yang sebelumnya ada.
-         * =================================================
-         */
-
-        else if (transaksiLama) {
-          const { error: hapusError } = await supabase
-            .from("kas_transaksi")
-            .delete()
-            .eq("id", transaksiLama.id);
-
-          if (hapusError) {
-            throw new Error(
-              `Gagal menghapus transaksi IPK RT ${item.rt}: ${hapusError.message}`
-            );
-          }
-        }
-      }
+      const hasilRows = hasil as IpkRow[];
 
       /*
        * =====================================================
@@ -293,7 +147,7 @@ export default function IpkPage() {
        */
 
       const hasilMap = new Map(
-        (hasil || []).map((item) => [item.rt, item])
+        hasilRows.map((item) => [item.rt, item])
       );
 
       setData((sebelumnya) =>
@@ -324,14 +178,7 @@ export default function IpkPage() {
     }
   }
 
-  const totalTerkumpul = useMemo(
-    () =>
-      data.reduce(
-        (total, item) => total + item.terkumpul,
-        0
-      ),
-    [data]
-  );
+  const totalTerkumpul = useMemo(() => calculateIpkTotal(data), [data]);
 
   const jumlahRTTerisi = useMemo(
     () =>
@@ -342,32 +189,10 @@ export default function IpkPage() {
   );
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-24">
+    <main className="min-h-screen bg-[var(--background)] pb-8">
       <div className="mx-auto max-w-3xl px-4 py-5">
 
-        {/* HEADER */}
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-slate-500">
-              Kas RW 16
-            </p>
-
-            <h1 className="text-2xl font-bold text-slate-900">
-              IPK Warga
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Rekap IPK terkumpul per RT
-            </p>
-          </div>
-
-          <Link
-            href="/kas"
-            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200"
-          >
-            ← Kas
-          </Link>
-        </div>
+        <PageHeader eyebrow="Kas RW 16" title="IPK Warga" subtitle="Rekap IPK terkumpul per RT" backHref="/kas" />
 
         {/* PERIODE */}
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -375,7 +200,7 @@ export default function IpkPage() {
             Periode IPK
           </label>
 
-          <input
+          <input aria-label="Periode IPK"
             type="month"
             value={bulan}
             onChange={(e) => setBulan(e.target.value)}
@@ -394,7 +219,7 @@ export default function IpkPage() {
           </p>
 
           <p className="mt-1 text-3xl font-bold">
-            {formatRupiah(totalTerkumpul)}
+            {totalTerkumpul === null ? "Total di luar batas angka aman" : formatRupiah(totalTerkumpul)}
           </p>
 
           <div className="mt-4 flex items-center justify-between gap-3">
@@ -417,8 +242,9 @@ export default function IpkPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Masukkan jumlah IPK yang sudah terkumpul
-              masing-masing RT.
+              {canManage
+                ? "Masukkan jumlah IPK yang sudah terkumpul masing-masing RT."
+                : "Rekap IPK yang tercatat untuk masing-masing RT."}
             </p>
           </div>
 
@@ -467,6 +293,7 @@ export default function IpkPage() {
                         type="text"
                         inputMode="numeric"
                         value={formatInput(item.terkumpul)}
+                        readOnly={!canManage}
                         onChange={(e) =>
                           ubahTerkumpul(
                             index,
@@ -498,21 +325,21 @@ export default function IpkPage() {
                 </div>
 
                 <p className="text-lg font-bold text-slate-900">
-                  {formatRupiah(totalTerkumpul)}
+                  {totalTerkumpul === null ? "—" : formatRupiah(totalTerkumpul)}
                 </p>
               </div>
             </div>
           )}
 
           {/* STATUS SIMPAN */}
-          {saved && (
+          {canManage && saved && (
             <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-700">
               ✓ Rekap IPK & pemasukan Kas berhasil disimpan
             </div>
           )}
 
           {/* BUTTON */}
-          <button
+          {canManage && <button
             type="button"
             onClick={simpanSemua}
             disabled={saving || loading}
@@ -521,7 +348,7 @@ export default function IpkPage() {
             {saving
               ? "Menyimpan..."
               : "Simpan Rekap IPK"}
-          </button>
+          </button>}
 
         </section>
 

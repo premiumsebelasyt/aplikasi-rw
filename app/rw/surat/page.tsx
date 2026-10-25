@@ -2,458 +2,72 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PageHeader } from "@/components/ui/AppShell";
 import { supabase } from "@/lib/supabase/client";
+import { sendSuratCommand } from "@/lib/surat/command-client";
 
-type Surat = {
-  id: number;
-  warga_id: number;
-  jenis_surat: string;
-  keperluan: string | null;
-  rt: string;
-  rw: string;
-  status: string;
-  created_at: string;
-  ttd_rt: boolean;
-  ttd_rt_at: string | null;
-  ttd_rt_nama: string | null;
-};
-
-type Warga = {
-  id: number;
-  nama: string;
-  nik: string;
-  alamat: string | null;
-};
-
-type SuratDenganWarga = Surat & {
-  warga: Warga | null;
-};
+type SuratRow = { id: number; warga_id: number; jenis_surat: string; rt: string; payload: Record<string, unknown>; status: string; created_at: string; ttd_rt: boolean; ttd_rt_nama: string | null };
+type Item = SuratRow & { warga: { nama: string; nik: string } | null };
 
 export default function SuratRWPage() {
   const router = useRouter();
-
-  const [surat, setSurat] = useState<SuratDenganWarga[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
-  const [prosesId, setProsesId] = useState<number | null>(null);
-  const [pesan, setPesan] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
 
-  const ambilSurat = useCallback(async () => {
-    try {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError || !authData.user) {
-        router.replace("/login");
-        return;
-      }
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", authData.user.id)
-        .maybeSingle();
-      if (profileError || !profile || !["RW", "ADMIN"].includes(profile.role)) {
-        router.replace("/login");
-        return;
-      }
-
-      const { data: dataSurat, error: suratError } = await supabase
-        .from("surat")
-        .select("*")
-        .eq("status", "MENUNGGU_RW")
-        .order("created_at", { ascending: false });
-
-      if (suratError) {
-        throw suratError;
-      }
-
-      const daftarSurat = dataSurat || [];
-
-      if (daftarSurat.length === 0) {
-        setSurat([]);
-        return;
-      }
-
-      const wargaIds = daftarSurat
-        .map((item) => item.warga_id)
-        .filter(Boolean);
-
-      const { data: dataWarga, error: wargaError } = await supabase
-        .from("warga")
-        .select("id, nama, nik, alamat")
-        .in("id", wargaIds);
-
-      if (wargaError) {
-        throw wargaError;
-      }
-
-      const daftarWarga = dataWarga || [];
-
-      const hasil: SuratDenganWarga[] = daftarSurat.map((item) => ({
-        ...item,
-        warga:
-          daftarWarga.find(
-            (warga) => warga.id === item.warga_id
-          ) || null,
-      }));
-
-      setSurat(hasil);
-    } catch (error) {
-      console.error("Gagal mengambil surat RW:", error);
-
-      if (error && typeof error === "object") {
-        const err = error as { message?: string };
-        setPesan(err.message || "Gagal mengambil surat.");
-      } else {
-        setPesan(String(error));
-      }
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(async () => {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError || !auth.user) { router.replace("/login"); return; }
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle();
+    if (profileError || profile?.role !== "RW") { router.replace("/login"); return; }
+    const { data, error } = await supabase.from("surat").select("*").eq("status", "MENUNGGU_RW").order("created_at", { ascending: false });
+    if (error) throw error;
+    const rows = data ?? [];
+    const wargaIds = [...new Set(rows.map((row) => row.warga_id))];
+    const { data: wargaRows, error: wargaError } = wargaIds.length
+      ? await supabase.from("warga").select("id, nama, nik").in("id", wargaIds)
+      : { data: [], error: null };
+    if (wargaError) throw wargaError;
+    setItems(rows.map((row) => ({ ...row, warga: wargaRows?.find((warga) => warga.id === row.warga_id) ?? null })) as Item[]);
   }, [router]);
 
   useEffect(() => {
     async function loadAfterMount() {
       await Promise.resolve();
-      await ambilSurat();
+      try { await load(); }
+      catch (error) { setMessage(error instanceof Error ? error.message : "Gagal memuat surat."); }
+      finally { setLoading(false); }
     }
     void loadAfterMount();
-  }, [ambilSurat]);
+  }, [load]);
 
-  async function setujuiSurat(id: number) {
-    const yakin = window.confirm(
-      "Setujui surat ini?\n\n" +
-        "Setelah disetujui, Anda akan langsung masuk ke halaman " +
-        "Pengesahan RW untuk melakukan tanda tangan."
-    );
-
-    if (!yakin) return;
-
-    setProsesId(id);
-    setPesan("");
-
+  async function decide(item: Item, command: "rw_approve" | "rw_reject") {
+    const reason = command === "rw_reject" ? window.prompt("Alasan surat perlu diperbaiki:") : undefined;
+    if (command === "rw_reject" && reason === null) return;
+    setBusyId(item.id); setMessage("");
     try {
-      const { error } = await supabase
-        .from("surat")
-        .update({
-          status: "DISETUJUI",
-        })
-        .eq("id", id)
-        .eq("status", "MENUNGGU_RW");
-
-      if (error) {
-        throw error;
-      }
-
-      /*
-       * Setelah berhasil disetujui,
-       * langsung masuk ke detail RW.
-       *
-       * Di halaman ini status sudah DISETUJUI,
-       * sehingga bagian Pengesahan RW + TTD RW
-       * otomatis muncul.
-       */
-      router.push(`/rw/surat/${id}`);
-    } catch (error) {
-      console.error("Gagal menyetujui surat:", error);
-
-      if (error && typeof error === "object") {
-        const err = error as { message?: string };
-        setPesan(
-          err.message || "Gagal menyetujui surat."
-        );
-      } else {
-        setPesan(String(error));
-      }
-
-      setProsesId(null);
-    }
+      await sendSuratCommand(item.id, command, reason ?? undefined);
+      await load();
+      setMessage(command === "rw_approve" ? `Surat #${item.id} disetujui dan ditandatangani oleh signer terdaftar.` : `Surat #${item.id} dikembalikan untuk perbaikan.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Keputusan gagal disimpan."); }
+    finally { setBusyId(null); }
   }
 
-  async function tolakSurat(id: number) {
-    const alasan = window.prompt(
-      "Masukkan alasan surat ditolak/perlu diperbaiki:"
-    );
-
-    if (alasan === null) {
-      return;
-    }
-
-    if (!alasan.trim()) {
-      setPesan("Alasan penolakan wajib diisi.");
-      return;
-    }
-
-    setProsesId(id);
-    setPesan("");
-
-    try {
-      const { error } = await supabase
-        .from("surat")
-        .update({
-          status: "DITOLAK",
-          ditolak_alasan: alasan.trim(),
-        })
-        .eq("id", id)
-        .eq("status", "MENUNGGU_RW");
-
-      if (error) {
-        throw error;
-      }
-
-      setSurat((daftar) =>
-        daftar.filter((item) => item.id !== id)
-      );
-
-      setPesan(
-        `Surat berhasil ditolak. Alasan: ${alasan.trim()}`
-      );
-    } catch (error) {
-      console.error("Gagal menolak surat:", error);
-
-      if (error && typeof error === "object") {
-        const err = error as { message?: string };
-        setPesan(
-          err.message || "Gagal menolak surat."
-        );
-      } else {
-        setPesan(String(error));
-      }
-    } finally {
-      setProsesId(null);
-    }
-  }
-
-  function formatJenisSurat(jenis: string) {
-    const daftar: Record<string, string> = {
-      "surat-pengantar": "Surat Pengantar",
-      "surat-domisili": "Surat Domisili",
-      "surat-keterangan-usaha":
-        "Surat Keterangan Usaha",
-      "surat-keterangan-tidak-mampu":
-        "Surat Keterangan Tidak Mampu",
-      "surat-keterangan-lainnya":
-        "Surat Keterangan Lainnya",
-    };
-
-    return daftar[jenis] || jenis;
-  }
-
-  function formatTanggal(tanggal: string) {
-    return new Date(tanggal).toLocaleString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-gray-100">
-        <div className="mx-auto max-w-xl px-4 py-10">
-          <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
-            <p className="text-sm text-gray-500">
-              Memuat surat masuk RW...
-            </p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-emerald-900 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <p className="text-sm text-emerald-100">
-            Sistem Administrasi RW 16
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Surat Masuk RW
-          </h1>
-
-          <p className="mt-1 text-sm text-emerald-100">
-            Pemeriksaan dan persetujuan surat dari RT
-          </p>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-xl px-4 py-5">
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-gray-400">
-                MENUNGGU PERSETUJUAN
-              </p>
-
-              <h2 className="mt-1 text-3xl font-bold text-gray-800">
-                {surat.length}
-              </h2>
-
-              <p className="mt-1 text-sm text-gray-500">
-                surat menunggu pemeriksaan RW
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-yellow-50 px-4 py-3 text-center">
-              <p className="text-2xl">📨</p>
-
-              <p className="mt-1 text-xs font-bold text-yellow-700">
-                Surat Masuk
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {pesan && (
-          <div
-            className={
-              "mt-4 rounded-2xl p-4 text-sm font-semibold " +
-              (pesan.includes("berhasil")
-                ? "bg-green-50 text-green-700"
-                : "bg-red-50 text-red-700")
-            }
-          >
-            {pesan}
-          </div>
-        )}
-
-        {surat.length === 0 ? (
-          <div className="mt-4 rounded-2xl bg-white p-8 text-center shadow-sm">
-            <div className="text-4xl">✅</div>
-
-            <h2 className="mt-3 text-lg font-bold text-gray-800">
-              Tidak Ada Surat Masuk
-            </h2>
-
-            <p className="mt-1 text-sm leading-5 text-gray-500">
-              Saat ini tidak ada surat dari RT yang
-              menunggu persetujuan RW.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4 space-y-4">
-            {surat.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-2xl bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-400">
-                      SURAT #{item.id}
-                    </p>
-
-                    <h2 className="mt-1 text-lg font-bold text-gray-800">
-                      {formatJenisSurat(item.jenis_surat)}
-                    </h2>
-                  </div>
-
-                  <span className="shrink-0 rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700">
-                    Menunggu RW
-                  </span>
-                </div>
-
-                <div className="mt-4 rounded-xl bg-gray-50 p-4">
-                  <p className="text-xs text-gray-400">
-                    PEMOHON
-                  </p>
-
-                  <p className="mt-1 font-bold text-gray-800">
-                    {item.warga?.nama ||
-                      "Data warga tidak ditemukan"}
-                  </p>
-
-                  {item.warga?.nik && (
-                    <p className="mt-1 text-sm text-gray-500">
-                      NIK: {item.warga.nik}
-                    </p>
-                  )}
-
-                  <p className="mt-2 text-sm font-semibold text-gray-700">
-                    RT {item.rt} / RW {item.rw}
-                  </p>
-                </div>
-
-                {item.keperluan && (
-                  <div className="mt-4">
-                    <p className="text-xs text-gray-400">
-                      KEPERLUAN
-                    </p>
-
-                    <p className="mt-1 text-sm leading-5 text-gray-700">
-                      {item.keperluan}
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-4">
-                  <p className="text-xs text-gray-400">
-                    TTD RT
-                  </p>
-
-                  <p className="mt-1 text-sm font-semibold text-green-700">
-                    ✓{" "}
-                    {item.ttd_rt_nama ||
-                      "Sudah ditandatangani RT"}
-                  </p>
-
-                  {item.ttd_rt_at && (
-                    <p className="mt-1 text-xs text-gray-400">
-                      {formatTanggal(item.ttd_rt_at)}
-                    </p>
-                  )}
-                </div>
-
-                <p className="mt-4 text-xs text-gray-400">
-                  Diajukan:{" "}
-                  {formatTanggal(item.created_at)}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    router.push(
-                      `/rw/surat/${item.id}`
-                    );
-                  }}
-                  className="mt-4 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-bold text-gray-700"
-                >
-                  👁️ Lihat Detail Surat
-                </button>
-
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      tolakSurat(item.id);
-                    }}
-                    disabled={prosesId === item.id}
-                    className="rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {prosesId === item.id
-                      ? "Memproses..."
-                      : "❌ Tolak"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setujuiSurat(item.id);
-                    }}
-                    disabled={prosesId === item.id}
-                    className="rounded-xl bg-green-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {prosesId === item.id
-                      ? "Memproses..."
-                      : "✅ Setujui"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  return <main className="min-h-screen bg-[var(--background)] pb-10">
+    <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Surat Masuk RW" subtitle="Pemeriksaan dan persetujuan surat dari RT" />
+    <div className="mx-auto max-w-2xl space-y-4 px-4 py-5">
+      <section className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-xs font-semibold text-slate-500">MENUNGGU PERSETUJUAN RW</p><p className="mt-1 text-3xl font-bold">{loading ? "…" : items.length}</p><p className="text-sm text-slate-500">surat telah melewati persetujuan dan TTD RT</p></section>
+      {message && <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{message}</p>}
+      {!loading && items.length === 0 && <section className="rounded-2xl bg-white p-8 text-center"><h2 className="font-bold">Tidak ada surat masuk</h2><p className="mt-2 text-sm text-slate-500">Antrean RW kosong.</p></section>}
+      {items.map((item) => <article key={item.id} className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-2"><div><p className="text-xs text-slate-500">SURAT #{item.id} · {item.rt}</p><h2 className="mt-1 font-bold">{item.jenis_surat}</h2></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">Menunggu RW</span></div>
+        <p className="mt-4 text-sm"><strong>{item.warga?.nama ?? "Pemohon tidak tersedia"}</strong>{item.warga?.nik ? ` · NIK ${item.warga.nik}` : ""}</p>
+        <p className="mt-2 text-sm text-slate-700">{typeof item.payload?.keperluan === "string" ? item.payload.keperluan : "—"}</p>
+        <p className="mt-2 text-xs text-slate-500">TTD RT: {item.ttd_rt ? item.ttd_rt_nama ?? "Signer RT terdaftar" : "belum tercatat"} · {new Date(item.created_at).toLocaleString("id-ID")}</p>
+        <button onClick={() => router.push(`/rw/surat/${item.id}`)} className="mt-4 w-full rounded-xl border p-3 text-sm font-bold">Lihat detail</button>
+        <div className="mt-3 grid grid-cols-2 gap-3"><button disabled={busyId === item.id} onClick={() => void decide(item, "rw_reject")} className="rounded-xl bg-red-600 p-3 text-sm font-bold text-white disabled:opacity-50">Minta Perbaikan</button><button disabled={busyId === item.id} onClick={() => void decide(item, "rw_approve")} className="rounded-xl bg-emerald-700 p-3 text-sm font-bold text-white disabled:opacity-50">Setujui dan TTD</button></div>
+      </article>)}
+    </div>
+  </main>;
 }

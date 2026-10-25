@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseAdmin, createSupabaseUserClient } from "@/lib/supabase/admin";
 import { staffAuthEmail } from "@/lib/auth/staff-login";
+import { isActiveProfile } from "@/lib/auth/profile-status.mjs";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    const admin = createSupabaseAdmin();
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
     if (!url || !anonKey) {
@@ -32,11 +32,11 @@ export async function POST(request: Request) {
     }
 
     let email: string;
-    let wargaProfile: { id: string; role: string } | null = null;
     if (role === "WARGA") {
+      const admin = createSupabaseAdmin();
       const { data: profile, error: profileError } = await admin
         .from("profiles")
-        .select("id, role")
+        .select("id, role, aktif")
         .eq("role", role)
         .eq("no_kk", identifier)
         .maybeSingle();
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
         console.error("Login profile lookup failed:", profileError.code);
         return NextResponse.json({ error: "Layanan login belum siap. Periksa konfigurasi database aplikasi RW." }, { status: 503 });
       }
-      if (!profile) {
+      if (!profile || !isActiveProfile(profile)) {
         return NextResponse.json({ error: "ID atau password tidak cocok." }, { status: 401 });
       }
 
@@ -55,7 +55,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "ID atau password tidak cocok." }, { status: 401 });
       }
       email = account.user.email;
-      wargaProfile = profile;
     } else {
       const staffEmail = staffAuthEmail(identifier);
       if (!staffEmail) {
@@ -72,36 +71,49 @@ export async function POST(request: Request) {
       password,
     });
     if (passwordError || !session.session) {
+      const diagnosticCode = passwordError?.code;
+      console.warn("Sign-in rejected at Auth stage:", {
+        status: typeof passwordError?.status === "number" ? passwordError.status : 0,
+        code: typeof diagnosticCode === "string" && /^[a-z0-9_-]{1,60}$/i.test(diagnosticCode)
+          ? diagnosticCode
+          : "unknown",
+      });
       return NextResponse.json({ error: "ID atau password tidak cocok." }, { status: 401 });
     }
 
-    let verifiedProfile = wargaProfile;
-    if (role !== "WARGA") {
-      const { data: profile, error: profileError } = await admin
-        .from("profiles")
-        .select("id, role")
-        .eq("id", session.user.id)
-        .maybeSingle();
+    const profileClient = createSupabaseUserClient(session.session.access_token);
+    const { data: verifiedProfile, error: profileError } = await profileClient
+      .from("profiles")
+      .select("id, role, aktif, no_kk")
+      .eq("id", session.user.id)
+      .maybeSingle();
 
-      if (profileError) {
-        console.error("Login role verification failed:", profileError.code);
-        return NextResponse.json({ error: "Layanan login belum siap. Periksa konfigurasi database aplikasi RW." }, { status: 503 });
-      }
-      if (!profile || profile.role !== role) {
-        return NextResponse.json({ error: "ID atau password tidak cocok." }, { status: 401 });
-      }
-      verifiedProfile = profile;
+    if (profileError) {
+      console.error("Login role verification failed:", profileError.code);
+      return NextResponse.json({ error: "Layanan login belum siap. Periksa konfigurasi database aplikasi RW." }, { status: 503 });
+    }
+    if (!verifiedProfile) {
+      return NextResponse.json({ error: "Autentikasi berhasil, tetapi profil RW akun ini belum tersedia. Hubungi administrator." }, { status: 403 });
+    }
+    if (!isActiveProfile(verifiedProfile)) {
+      return NextResponse.json({ error: "Autentikasi berhasil, tetapi profil RW akun ini belum aktif. Hubungi administrator." }, { status: 403 });
+    }
+    if (verifiedProfile.role !== role) {
+      return NextResponse.json({ error: "Autentikasi berhasil, tetapi jenis akun yang dipilih tidak sesuai dengan peran akun." }, { status: 403 });
+    }
+    if (role === "WARGA" && verifiedProfile.no_kk !== identifier) {
+      return NextResponse.json({ error: "Nomor KK tidak sesuai dengan profil akun yang terautentikasi." }, { status: 403 });
     }
 
     return NextResponse.json({
-      role: verifiedProfile?.role,
+      role: verifiedProfile.role,
       session: {
         access_token: session.session.access_token,
         refresh_token: session.session.refresh_token,
       },
     });
   } catch (error) {
-    console.error("Login service unavailable:", error instanceof Error ? error.message : "unknown_error");
+    console.error("Login service unavailable:", error instanceof Error ? error.name : "unknown_error");
     return NextResponse.json({ error: "Layanan login belum dikonfigurasi." }, { status: 503 });
   }
 }

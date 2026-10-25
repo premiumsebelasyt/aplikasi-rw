@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
+import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
 
 type Jenis = "PEMASUKAN" | "PENGELUARAN";
 
@@ -80,19 +81,17 @@ export default function PengaturanKasPage() {
     setSaving(true);
 
     try {
-      const { error } = await supabase
+      const { data: insertedRow, error } = await supabase
         .from("kas_kategori")
         .insert({
           nama: namaBersih,
           jenis,
           aktif: true,
-        });
+        })
+        .select("id")
+        .maybeSingle();
 
-      if (error) {
-        throw new Error(
-          `Gagal menambah kategori: ${error.message}`
-        );
-      }
+      requireMutationRow(insertedRow, error, "Gagal menambah kategori");
 
       setNama("");
 
@@ -122,18 +121,16 @@ export default function PengaturanKasPage() {
     setUpdatingId(item.id);
 
     try {
-      const { error } = await supabase
+      const { data: updatedRow, error } = await supabase
         .from("kas_kategori")
         .update({
           aktif: statusBaru,
         })
-        .eq("id", item.id);
+        .eq("id", item.id)
+        .select("id")
+        .maybeSingle();
 
-      if (error) {
-        throw new Error(
-          `Gagal mengubah status kategori: ${error.message}`
-        );
-      }
+      requireMutationRow(updatedRow, error, "Gagal mengubah status kategori");
 
       setKategori((sebelumnya) =>
         sebelumnya.map((kategori) =>
@@ -239,31 +236,10 @@ export default function PengaturanKasPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-24">
+    <main className="min-h-screen bg-[var(--background)] pb-8">
       <div className="mx-auto max-w-5xl px-4 py-5">
 
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-slate-500">
-              Kas RW 16
-            </p>
-
-            <h1 className="text-2xl font-bold text-slate-900">
-              Pengaturan Kas
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Kelola kategori pemasukan dan pengeluaran.
-            </p>
-          </div>
-
-          <Link
-            href="/kas"
-            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200"
-          >
-            ← Kas
-          </Link>
-        </div>
+        <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title="Pengaturan Kas" subtitle="Kelola kategori pemasukan dan pengeluaran" backHref="/kas" /></div>
 
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
 
@@ -322,7 +298,7 @@ export default function PengaturanKasPage() {
                 Nama Kategori
               </label>
 
-              <input
+              <input aria-label="Nama kategori"
                 type="text"
                 value={nama}
                 onChange={(e) =>

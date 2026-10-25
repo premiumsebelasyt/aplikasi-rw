@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseAdmin, createSupabaseUserClient } from "@/lib/supabase/admin";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
+import { canAccessWargaList, canMutateWarga, canReadWarga } from "@/lib/auth/warga-access.mjs";
+import { parseWargaCategoryIds } from "@/lib/warga/category-input.mjs";
+import { isValidNIK, isValidOptionalNoKK } from "@/lib/warga/identity-validation.mjs";
+import { isActiveProfile } from "@/lib/auth/profile-status.mjs";
+import { databaseErrorHttpStatus } from "@/lib/http/database-error.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,13 +22,13 @@ async function getAuthorizedProfile(request: Request) {
   const admin = createSupabaseAdmin();
   const { data: auth, error: authError } = await admin.auth.getUser(token);
   if (authError || !auth.user) return { response: NextResponse.json({ error: "Sesi login tidak valid." }, { status: 401 }) };
-  const { data: profile, error } = await admin.from("profiles").select("role, rt").eq("id", auth.user.id).maybeSingle();
-  if (error || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+  const { data: profile, error } = await admin.from("profiles").select("role, rt, aktif").eq("id", auth.user.id).maybeSingle();
+  if (error || !profile || !isActiveProfile(profile) || !canAccessWargaList(profile.role)) {
     return { response: NextResponse.json({ error: "Akses data warga tidak tersedia." }, { status: 403 }) };
   }
   const rt = profile.role === "RT" ? normalizeRtScope(profile.rt) : null;
   if (profile.role === "RT" && !rt) return { response: NextResponse.json({ error: "Wilayah tugas akun RT belum valid." }, { status: 403 }) };
-  return { admin, profile, rt };
+  return { admin, userClient: createSupabaseUserClient(token), profile, rt };
 }
 
 export async function GET(request: Request) {
@@ -36,7 +41,9 @@ export async function GET(request: Request) {
     let query = admin.from("warga").select("*");
     if (requestedId) {
       if (!/^\d+$/.test(requestedId)) return NextResponse.json({ error: "ID warga tidak valid." }, { status: 400 });
-      query = query.eq("id", Number(requestedId));
+      const numericId = Number(requestedId);
+      if (!Number.isSafeInteger(numericId) || numericId < 1) return NextResponse.json({ error: "ID warga tidak valid." }, { status: 400 });
+      query = query.eq("id", numericId);
     }
     if (profile.role === "RT") {
       query = query.eq("rt", rt as string);
@@ -45,6 +52,9 @@ export async function GET(request: Request) {
     const { data, error } = await query.order("nama", { ascending: true });
     if (error) throw new Error("Data warga belum dapat dimuat.");
     if (requestedId && (!data || data.length === 0)) {
+      return NextResponse.json({ error: "Data warga tidak ditemukan atau di luar wilayah tugas." }, { status: 404 });
+    }
+    if (requestedId && !canReadWarga({ role: profile.role, profile, warga: data?.[0] })) {
       return NextResponse.json({ error: "Data warga tidak ditemukan atau di luar wilayah tugas." }, { status: 404 });
     }
 
@@ -59,29 +69,46 @@ export async function POST(request: Request) {
   try {
     const access = await getAuthorizedProfile(request);
     if (access.response) return access.response;
-    const { admin, profile, rt } = access;
-    const body = await request.json() as Record<string, unknown>;
-    if (!body.nik || !body.nama || !body.alamat) return NextResponse.json({ error: "NIK, nama, dan alamat wajib diisi." }, { status: 400 });
+    const { userClient, profile, rt } = access;
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json() as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Data warga tidak valid." }, { status: 400 });
+    }
+    if (!canMutateWarga({ role: profile.role, profile, warga: null, action: "create" })) {
+      return NextResponse.json({ error: "Role ini tidak boleh menambah data warga." }, { status: 403 });
+    }
+    if (![body.nik, body.nama, body.alamat].every((value) => typeof value === "string" && value.trim())) {
+      return NextResponse.json({ error: "NIK, nama, dan alamat wajib diisi." }, { status: 400 });
+    }
+    if (!isValidNIK(body.nik)) return NextResponse.json({ error: "NIK harus terdiri dari 16 digit." }, { status: 400 });
+    if (!isValidOptionalNoKK(body.no_kk)) {
+      return NextResponse.json({ error: "Nomor KK harus kosong atau terdiri dari 16 digit." }, { status: 400 });
+    }
     const wargaRecord: Record<string, unknown> = {};
     for (const field of editableFields) if (field in body) wargaRecord[field] = body[field];
     wargaRecord.rt = profile.role === "RT" ? rt : normalizeRtScope(body.rt);
     if (!wargaRecord.rt) return NextResponse.json({ error: "RT warga tidak valid." }, { status: 400 });
     wargaRecord.status_warga = "Aktif";
 
-    const { data: warga, error } = await admin.from("warga").insert(wargaRecord).select("id").single();
-    if (error || !warga) {
+    const parsedCategories = parseWargaCategoryIds(body);
+    if (parsedCategories.error) return NextResponse.json({ error: parsedCategories.error }, { status: 400 });
+    const { data: wargaId, error } = await userClient.rpc("save_warga_with_categories", {
+      p_warga_id: null,
+      p_warga: wargaRecord,
+      p_category_ids: parsedCategories.ids ?? [],
+    });
+    if (error || !wargaId) {
       if (error?.code === "23505") return NextResponse.json({ error: "NIK tersebut sudah terdaftar." }, { status: 409 });
-      throw new Error("Data warga gagal disimpan.");
+      console.error("Atomic warga create failed:", error?.code ?? "unknown_error");
+      const status = databaseErrorHttpStatus(error?.code);
+      return NextResponse.json({ error: status === 403 ? "Akses perubahan warga ditolak." : status === 400 ? "Data warga tidak valid." : "Data warga dan kategori gagal disimpan." }, { status });
     }
-    const categories = Array.isArray(body.kategori_ids) ? [...new Set(body.kategori_ids.map(Number).filter(Number.isInteger))] : [];
-    if (categories.length) {
-      const { error: categoryError } = await admin.from("warga_kategori").insert(categories.map((kategori_id) => ({ warga_id: warga.id, kategori_id })));
-      if (categoryError) throw new Error("Data warga tersimpan, tetapi kategori belum berhasil disimpan.");
-    }
-    return NextResponse.json({ id: warga.id }, { status: 201 });
+    return NextResponse.json({ id: wargaId }, { status: 201 });
   } catch (error) {
-    console.error("Create warga failed:", error instanceof Error ? error.message : "unknown_error");
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Data warga gagal disimpan." }, { status: 503 });
+    console.error("Create warga failed:", error instanceof Error ? error.name : "unknown_error");
+    return NextResponse.json({ error: "Data warga gagal disimpan." }, { status: 503 });
   }
 }
 
@@ -89,8 +116,13 @@ export async function PATCH(request: Request) {
   try {
     const access = await getAuthorizedProfile(request);
     if (access.response) return access.response;
-    const { admin, profile, rt } = access;
-    const body = await request.json() as Record<string, unknown>;
+    const { admin, userClient, profile, rt } = access;
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json() as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Data perubahan warga tidak valid." }, { status: 400 });
+    }
     const id = Number(body.id);
     if (!Number.isSafeInteger(id) || id < 1) return NextResponse.json({ error: "ID warga tidak valid." }, { status: 400 });
 
@@ -98,29 +130,40 @@ export async function PATCH(request: Request) {
     if (profile.role === "RT") targetQuery = targetQuery.eq("rt", rt as string);
     const { data: target, error: targetError } = await targetQuery.maybeSingle();
     if (targetError || !target) return NextResponse.json({ error: "Data warga tidak ditemukan atau di luar wilayah tugas." }, { status: 404 });
+    if (!canMutateWarga({ role: profile.role, profile, warga: target, action: "update" })) {
+      return NextResponse.json({ error: "Role ini tidak boleh mengubah data warga tersebut." }, { status: 403 });
+    }
 
     const update: Record<string, unknown> = {};
+    const hasEditableChanges = editableFields.some((field) => field in body);
     for (const field of editableFields) if (field in body) update[field] = body[field];
-    update.rt = profile.role === "RT" ? rt : normalizeRtScope(body.rt);
-    if (!update.rt) return NextResponse.json({ error: "RT warga tidak valid." }, { status: 400 });
-    update.updated_at = new Date().toISOString();
-    let updateQuery = admin.from("warga").update(update).eq("id", id);
-    if (profile.role === "RT") updateQuery = updateQuery.eq("rt", rt as string);
-    const { error: updateError } = await updateQuery;
-    if (updateError) throw new Error(updateError.code === "23505" ? "NIK tersebut sudah digunakan warga lain." : "Perubahan data warga gagal disimpan.");
-
-    if (Array.isArray(body.kategori_ids)) {
-      const categoryIds = [...new Set(body.kategori_ids.map(Number).filter(Number.isInteger))];
-      const { error: removeError } = await admin.from("warga_kategori").delete().eq("warga_id", id);
-      if (removeError) throw new Error("Data warga berubah, tetapi kategori lama gagal diperbarui.");
-      if (categoryIds.length) {
-        const { error: insertError } = await admin.from("warga_kategori").insert(categoryIds.map((kategori_id) => ({ warga_id: id, kategori_id })));
-        if (insertError) throw new Error("Data warga berubah, tetapi kategori baru gagal diperbarui.");
-      }
+    if (profile.role === "RT") update.rt = rt;
+    else if ("rt" in body) update.rt = normalizeRtScope(body.rt);
+    const parsedCategories = parseWargaCategoryIds(body);
+    if (parsedCategories.error) return NextResponse.json({ error: parsedCategories.error }, { status: 400 });
+    if ("nik" in update && !isValidNIK(update.nik)) {
+      return NextResponse.json({ error: "NIK harus terdiri dari 16 digit." }, { status: 400 });
+    }
+    if ("no_kk" in update && !isValidOptionalNoKK(update.no_kk)) {
+      return NextResponse.json({ error: "Nomor KK harus kosong atau terdiri dari 16 digit." }, { status: 400 });
+    }
+    if (!hasEditableChanges && parsedCategories.ids === null) {
+      return NextResponse.json({ error: "Tidak ada perubahan data yang dikirim." }, { status: 400 });
+    }
+    const { error: updateError } = await userClient.rpc("save_warga_with_categories", {
+      p_warga_id: id,
+      p_warga: update,
+      p_category_ids: parsedCategories.ids,
+    });
+    if (updateError?.code === "23505") return NextResponse.json({ error: "NIK tersebut sudah digunakan warga lain." }, { status: 409 });
+    if (updateError) {
+      console.error("Atomic warga update failed:", updateError.code ?? "unknown_error");
+      const status = databaseErrorHttpStatus(updateError.code);
+      return NextResponse.json({ error: status === 403 ? "Akses perubahan warga ditolak." : status === 400 ? "Data warga tidak valid." : status === 404 ? "Data warga tidak ditemukan." : "Perubahan warga dan kategori gagal disimpan." }, { status });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Update warga failed:", error instanceof Error ? error.message : "unknown_error");
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Data warga gagal diubah." }, { status: 503 });
+    console.error("Update warga failed:", error instanceof Error ? error.name : "unknown_error");
+    return NextResponse.json({ error: "Data warga gagal diubah." }, { status: 503 });
   }
 }

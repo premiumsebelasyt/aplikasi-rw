@@ -4,7 +4,10 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 import { toLocalDateString } from "@/lib/date";
+import { parseKasNominal } from "@/lib/kas/nominal.mjs";
+import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
 
 type Kategori = {
   id: number;
@@ -87,11 +90,9 @@ function TambahKasForm() {
       return;
     }
 
-    const nominalAngka = Number(
-      nominal.replace(/\./g, "").replace(/,/g, "")
-    );
+    const nominalAngka = parseKasNominal(nominal);
 
-    if (!nominalAngka || nominalAngka <= 0) {
+    if (nominalAngka === null) {
       alert("Nominal tidak valid.");
       return;
     }
@@ -100,7 +101,7 @@ function TambahKasForm() {
 
     setSaving(true);
 
-    const { error } = await supabase
+    const { data: insertedRow, error } = await supabase
       .from("kas_transaksi")
       .insert({
         tanggal,
@@ -117,11 +118,15 @@ function TambahKasForm() {
           jenis === "PENGELUARAN"
             ? penerima.trim() || null
             : null,
-      });
+      })
+      .select("id")
+      .maybeSingle();
 
-    if (error) {
-      console.error(error);
-      alert(`Gagal menyimpan transaksi: ${error.message}`);
+    try {
+      requireMutationRow(insertedRow, error, "Gagal menyimpan transaksi");
+    } catch (mutationError) {
+      console.error(mutationError);
+      alert(mutationError instanceof Error ? mutationError.message : "Gagal menyimpan transaksi.");
       setSaving(false);
       return;
     }
@@ -139,41 +144,11 @@ function TambahKasForm() {
   const isPemasukan = jenis === "PEMASUKAN";
 
   return (
-    <main className="min-h-screen bg-slate-100">
+    <main className="min-h-screen bg-[var(--background)]">
       <div className="mx-auto max-w-2xl px-4 py-5">
 
         {/* HEADER */}
-        <div
-          className={`mb-5 overflow-hidden rounded-3xl p-5 text-white shadow-sm ${
-            isPemasukan
-              ? "bg-emerald-600"
-              : "bg-rose-600"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium opacity-90">
-                Kas RW 16
-              </p>
-
-              <h1 className="mt-1 text-2xl font-bold">
-                {isPemasukan
-                  ? "＋ Tambah Pemasukan"
-                  : "− Tambah Pengeluaran"}
-              </h1>
-
-              <p className="mt-2 text-sm opacity-90">
-                {isPemasukan
-                  ? "Catat pemasukan selain IPK bulanan."
-                  : "Catat uang yang keluar dari Kas RW 16."}
-              </p>
-            </div>
-
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl font-bold">
-              {isPemasukan ? "+" : "−"}
-            </div>
-          </div>
-        </div>
+        <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title={isPemasukan ? "Tambah Pemasukan" : "Tambah Pengeluaran"} subtitle={isPemasukan ? "Catat pemasukan selain IPK bulanan" : "Catat pengeluaran kas RW"} backHref="/kas" action={<span aria-hidden="true" className={`grid h-10 w-10 place-items-center rounded-xl text-xl font-bold ${isPemasukan ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{isPemasukan ? "+" : "−"}</span>} /></div>
 
         {/* KEMBALI */}
         <div className="mb-4">
@@ -279,7 +254,7 @@ function TambahKasForm() {
                 Tanggal
               </label>
 
-              <input
+              <input aria-label="Tanggal"
                 type="date"
                 value={tanggal}
                 onChange={(e) => setTanggal(e.target.value)}
@@ -293,7 +268,7 @@ function TambahKasForm() {
                 Kategori
               </label>
 
-              <select
+              <select aria-label="Kategori"
                 value={kategoriId}
                 onChange={(e) => setKategoriId(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500"
@@ -334,7 +309,7 @@ function TambahKasForm() {
                 </div>
               )}
 
-              <textarea
+              <textarea aria-label="Keterangan"
                 value={keterangan}
                 onChange={(e) => setKeterangan(e.target.value)}
                 placeholder={
@@ -370,7 +345,7 @@ function TambahKasForm() {
                   Rp
                 </span>
 
-                <input
+                <input aria-label="Nominal"
                   type="text"
                   inputMode="numeric"
                   value={nominal}
@@ -401,7 +376,7 @@ function TambahKasForm() {
                 </span>
               </label>
 
-              <select
+              <select aria-label="RT (opsional)"
                 value={rt}
                 onChange={(e) => setRt(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-slate-500"
@@ -428,7 +403,7 @@ function TambahKasForm() {
                   </span>
                 </label>
 
-                <input
+                <input aria-label="Sumber Pemasukan (opsional)"
                   type="text"
                   value={sumber}
                   onChange={(e) => setSumber(e.target.value)}
@@ -448,7 +423,7 @@ function TambahKasForm() {
                   </span>
                 </label>
 
-                <input
+                <input aria-label="Penerima (opsional)"
                   type="text"
                   value={penerima}
                   onChange={(e) => setPenerima(e.target.value)}
@@ -487,7 +462,7 @@ export default function TambahKasPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-slate-100 p-5">
+        <main className="min-h-screen bg-[var(--background)] p-5">
           <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-center">
             Memuat form kas...
           </div>

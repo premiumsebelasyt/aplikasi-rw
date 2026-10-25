@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
+import { parseKasNominal } from "@/lib/kas/nominal.mjs";
+import { calculateCashBalance } from "@/lib/kas/balance.mjs";
+import { summarizeKasCashflow } from "@/lib/kas/cashflow-summary.mjs";
+import { PageHeader } from "@/components/ui/AppShell";
+import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
+import { useKasAuthority } from "@/lib/kas/use-kas-authority";
 
 type Transaksi = {
   id: number;
@@ -66,6 +72,7 @@ function formatTanggal(value: string) {
 }
 
 export default function KasPage() {
+  const { canManage } = useKasAuthority();
   const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [transaksi, setTransaksi] = useState<Transaksi[]>([]);
@@ -178,11 +185,7 @@ export default function KasPage() {
 
     setSaldoAwalData(saldoData);
 
-    setSaldoAwalInput(
-      saldoData
-        ? String(Math.round(saldoData.nominal))
-        : ""
-    );
+    setSaldoAwalInput(saldoData ? String(saldoData.nominal) : "");
 
     setKeteranganSaldo(
       saldoData?.keterangan || ""
@@ -197,12 +200,11 @@ export default function KasPage() {
   }, [loadData]);
 
   async function simpanSaldoAwal() {
-    const nominal = Number(
-      saldoAwalInput.replace(/\D/g, "") || 0
-    );
+    if (savingSaldo) return;
+    const nominal = parseKasNominal(saldoAwalInput || "0", true);
 
-    if (nominal < 0) {
-      alert("Saldo awal tidak boleh negatif.");
+    if (nominal === null) {
+      alert("Saldo awal harus berupa rupiah bulat nol atau lebih yang valid.");
       return;
     }
 
@@ -217,26 +219,22 @@ export default function KasPage() {
       };
 
       if (saldoAwalData) {
-        const { error } = await supabase
+        const { data: updatedRow, error } = await supabase
           .from("kas_saldo_awal")
           .update(payload)
-          .eq("id", saldoAwalData.id);
+          .eq("id", saldoAwalData.id)
+          .select("id")
+          .maybeSingle();
 
-        if (error) {
-          throw new Error(
-            `Gagal memperbarui saldo awal: ${error.message}`
-          );
-        }
+        requireMutationRow(updatedRow, error, "Gagal memperbarui saldo awal");
       } else {
-        const { error } = await supabase
+        const { data: insertedRow, error } = await supabase
           .from("kas_saldo_awal")
-          .insert(payload);
+          .insert(payload)
+          .select("id")
+          .maybeSingle();
 
-        if (error) {
-          throw new Error(
-            `Gagal menyimpan saldo awal: ${error.message}`
-          );
-        }
+        requireMutationRow(insertedRow, error, "Gagal menyimpan saldo awal");
       }
 
       await loadData();
@@ -255,47 +253,21 @@ export default function KasPage() {
     }
   }
 
-  const totalPemasukan = useMemo(
-    () =>
-      transaksi
-        .filter(
-          (item) => item.jenis === "PEMASUKAN"
-        )
-        .reduce(
-          (total, item) => total + item.nominal,
-          0
-        ),
-    [transaksi]
+  const cashflow = useMemo(
+    () => summarizeKasCashflow(transaksi, ipk),
+    [transaksi, ipk]
   );
+  const totalPemasukan = cashflow.income;
+  const totalPengeluaran = cashflow.expenses;
 
-  const totalPengeluaran = useMemo(
-    () =>
-      transaksi
-        .filter(
-          (item) => item.jenis === "PENGELUARAN"
-        )
-        .reduce(
-          (total, item) => total + item.nominal,
-          0
-        ),
-    [transaksi]
-  );
+  const saldoAwal = saldoAwalData?.nominal ?? null;
+  const saldoAkhir = calculateCashBalance(
+    saldoAwal,
+    totalPemasukan,
+    totalPengeluaran,
+  ).closingBalance;
 
-  const saldoAwal = saldoAwalData?.nominal || 0;
-
-  const saldoAkhir =
-    saldoAwal +
-    totalPemasukan -
-    totalPengeluaran;
-
-  const totalIpk = useMemo(
-    () =>
-      ipk.reduce(
-        (total, item) => total + item.terkumpul,
-        0
-      ),
-    [ipk]
-  );
+  const totalIpk = cashflow.ipkBreakdown;
 
   const rekapPengeluaran = useMemo(() => {
     return kategori
@@ -323,32 +295,11 @@ export default function KasPage() {
   }, [kategori, transaksi]);
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-24">
+    <main className="min-h-screen bg-[var(--background)] pb-8">
       <div className="mx-auto max-w-5xl px-4 py-5">
 
-        <div className="mb-5">
-          <p className="text-sm font-medium text-slate-500">
-            Nuansa Indah Ciomas
-          </p>
-
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Kas RW 16
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Dashboard keuangan RW
-              </p>
-            </div>
-
-            <Link
-              href="/"
-              className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200"
-            >
-              ← Beranda
-            </Link>
-          </div>
+        <div className="mb-5 -mx-4 -mt-5">
+          <PageHeader eyebrow="Nuansa Indah Ciomas" title="Kas RW 16" subtitle="Dashboard keuangan RW" backHref="/" />
         </div>
 
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -356,7 +307,7 @@ export default function KasPage() {
             Periode Kas
           </label>
 
-          <input
+          <input aria-label="Periode Kas"
             type="month"
             value={bulan}
             onChange={(e) =>
@@ -380,13 +331,13 @@ export default function KasPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Kelola pemasukan, pengeluaran, IPK, dan laporan.
+              {canManage ? "Kelola kas dan lihat laporan." : "Ringkasan kas RW 16 dan laporan."}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
 
-            <Link
+            {canManage && <Link
               href="/kas/tambah?pemasukan=1"
               className="rounded-2xl bg-emerald-600 p-5 text-white shadow-sm transition hover:bg-emerald-700"
             >
@@ -397,9 +348,9 @@ export default function KasPage() {
               <p className="mt-1 text-sm text-emerald-100">
                 Catat pemasukan selain IPK bulanan.
               </p>
-            </Link>
+            </Link>}
 
-            <Link
+            {canManage && <Link
               href="/kas/tambah?pengeluaran=1"
               className="rounded-2xl bg-red-600 p-5 text-white shadow-sm transition hover:bg-red-700"
             >
@@ -410,7 +361,7 @@ export default function KasPage() {
               <p className="mt-1 text-sm text-red-100">
                 Catat uang yang keluar dari Kas RW.
               </p>
-            </Link>
+            </Link>}
 
             <Link
               href="/kas/transaksi"
@@ -421,7 +372,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Lihat dan edit histori transaksi Kas.
+                {canManage ? "Lihat dan kelola histori transaksi Kas." : "Lihat histori transaksi Kas."}
               </p>
             </Link>
 
@@ -464,7 +415,7 @@ export default function KasPage() {
               </p>
             </Link>
 
-            <Link
+            {canManage && <Link
               href="/kas/pengaturan"
               className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
             >
@@ -475,7 +426,7 @@ export default function KasPage() {
               <p className="mt-1 text-sm text-slate-500">
                 Kelola kategori Kas RW.
               </p>
-            </Link>
+            </Link>}
 
           </div>
         </section>
@@ -495,12 +446,12 @@ export default function KasPage() {
 
             <p
               className={`text-2xl font-bold ${
-                saldoAkhir >= 0
+                saldoAkhir !== null && saldoAkhir >= 0
                   ? "text-emerald-300"
-                  : "text-red-300"
+                  : saldoAkhir === null ? "text-amber-200" : "text-red-300"
               }`}
             >
-              {formatRupiah(saldoAkhir)}
+              {saldoAkhir === null ? "Isi saldo awal" : formatRupiah(saldoAkhir)}
             </p>
           </div>
 
@@ -512,7 +463,7 @@ export default function KasPage() {
               </p>
 
               <p className="mt-1 text-sm font-bold">
-                {formatRupiah(saldoAwal)}
+                {saldoAwal === null ? "Belum diisi" : formatRupiah(saldoAwal)}
               </p>
             </div>
 
@@ -539,7 +490,7 @@ export default function KasPage() {
           </div>
         </section>
 
-        <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        {canManage && <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
 
           <div className="mb-4">
             <h2 className="font-bold text-slate-900">
@@ -561,7 +512,7 @@ export default function KasPage() {
                 Rp
               </span>
 
-              <input
+              <input aria-label="Saldo awal"
                 type="text"
                 inputMode="numeric"
                 value={saldoAwalInput}
@@ -587,7 +538,7 @@ export default function KasPage() {
             Keterangan
           </label>
 
-          <input
+              <input aria-label="Keterangan saldo awal"
             type="text"
             value={keteranganSaldo}
             onChange={(e) =>
@@ -607,7 +558,7 @@ export default function KasPage() {
               ? "Menyimpan..."
               : "Simpan Saldo Awal"}
           </button>
-        </section>
+        </section>}
 
         <section className="mb-5 grid gap-3 sm:grid-cols-3">
 
@@ -655,7 +606,7 @@ export default function KasPage() {
             </p>
 
             <p className="mt-1 text-xs text-slate-400">
-              RT 01–06
+              RT 01–06 · rincian dari pemasukan
             </p>
           </div>
 

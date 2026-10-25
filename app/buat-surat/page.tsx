@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 
 type FormData = {
   jenisSurat: string;
@@ -134,50 +135,29 @@ export default function BuatSuratPage() {
 
       if (!wargaLama) throw new Error("Anggota yang dipilih tidak terhubung ke KK akun ini.");
 
-      // 3. Buat surat sebagai DRAFT
-      const { data: suratBaru, error: suratError } = await supabase
-        .from("surat")
-        .insert({
-          warga_id: wargaLama.id,
-          jenis_surat: formData.jenisSurat,
-          keperluan: formData.keperluan.trim(),
-          rt: wargaLama.rt,
-          rw: "16",
-          status: "DRAFT",
-        })
-        .select("id")
-        .single();
+      const { data: suratBaru, error: suratError } = await supabase.rpc("create_surat_request", {
+        p_warga_id: wargaLama.id,
+        p_jenis_surat: formData.jenisSurat,
+        p_payload: { keperluan: formData.keperluan.trim() },
+      });
 
       if (suratError) {
         throw suratError;
       }
 
-      if (!suratBaru?.id) {
-        throw new Error("Surat berhasil dibuat tetapi ID surat tidak ditemukan.");
+      if (!suratBaru) {
+        throw new Error("RPC tidak mengembalikan ID surat; pengajuan tidak dapat dilanjutkan.");
       }
 
-      // 4. Langsung masuk ke halaman detail surat
-      router.push(`/surat/${suratBaru.id}`);
+      router.push(`/surat/${suratBaru}`);
     } catch (error) {
-      console.error("Gagal menyimpan surat:", error);
-
       if (error && typeof error === "object") {
-        const err = error as {
-          message?: string;
-          code?: string;
-          details?: string;
-          hint?: string;
-        };
-
-        setPesan(
-          `Gagal menyimpan surat: ${
-            err.message || "Tidak diketahui"
-          }${err.code ? ` | CODE: ${err.code}` : ""}${
-            err.details ? ` | DETAIL: ${err.details}` : ""
-          }${err.hint ? ` | HINT: ${err.hint}` : ""}`
-        );
+        const err = error as { code?: string };
+        setPesan(err.code === "42501"
+          ? "Akun ini tidak memiliki izin untuk mengajukan surat bagi data tersebut."
+          : "Surat gagal disimpan. Periksa data, lalu coba kembali.");
       } else {
-        setPesan(`Gagal menyimpan surat: ${String(error)}`);
+        setPesan("Surat gagal disimpan. Periksa data, lalu coba kembali.");
       }
     } finally {
       setLoading(false);
@@ -185,25 +165,20 @@ export default function BuatSuratPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      {/* HEADER */}
-      <header className="bg-blue-700 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <p className="text-sm text-blue-100">
-            Sistem Administrasi RW 16
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Buat Surat
-          </h1>
-
-          <p className="mt-1 text-sm text-blue-100">
-            Buat surat warga dan simpan sebagai draft
-          </p>
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-10">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Buat Surat" subtitle="Buat surat warga dan simpan sebagai draft" />
 
       <div className="mx-auto max-w-xl px-4 py-5">
+        <ol aria-label="Tahapan pengajuan surat" className="mb-4 grid grid-cols-4 rounded-2xl border border-[var(--border)] bg-white px-2 py-3 shadow-sm">
+          {["Jenis", "Data", "Cek", "Selesai"].map((step, index) => {
+            const activeStep = !formData.jenisSurat ? 0 : !formData.nik ? 1 : !formData.keperluan.trim() ? 2 : 2;
+            const active = index <= activeStep;
+            return <li key={step} className={`relative flex flex-col items-center gap-1 text-[11px] font-medium ${active ? "text-emerald-800" : "text-slate-400"}`}>
+              <span className={`grid h-6 w-6 place-items-center rounded-full text-[10px] ${active ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span>
+              <span>{step}</span>
+            </li>;
+          })}
+        </ol>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* JENIS SURAT */}
           <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -269,7 +244,7 @@ export default function BuatSuratPage() {
                 >
                   Anggota keluarga
                 </label>
-                <select
+                <select aria-label="Anggota keluarga"
                   id="nik"
                   name="nik"
                   value={formData.nik}
@@ -304,7 +279,7 @@ export default function BuatSuratPage() {
                   Nama Lengkap
                 </label>
 
-                <input
+                <input aria-label="Nama Lengkap"
                   id="nama"
                   name="nama"
                   type="text"
@@ -325,7 +300,7 @@ export default function BuatSuratPage() {
                   Nomor KK
                 </label>
 
-                <input
+                <input aria-label="Nomor KK"
                   id="noKK"
                   name="noKK"
                   type="text"
@@ -347,7 +322,7 @@ export default function BuatSuratPage() {
                   Alamat
                 </label>
 
-                <textarea
+                <textarea aria-label="Alamat"
                   id="alamat"
                   name="alamat"
                   rows={3}
@@ -368,7 +343,7 @@ export default function BuatSuratPage() {
                   RT
                 </label>
 
-                <input
+                <input aria-label="RT"
                   id="rt"
                   name="rt"
                   type="text"
@@ -429,12 +404,13 @@ export default function BuatSuratPage() {
             </p>
 
             <p className="mt-1 text-sm font-semibold text-blue-900">
-              Menunggu pemeriksaan dan TTD RT
+              Draft dibuat; pengajuan belum dikirim
             </p>
 
             <p className="mt-1 text-xs leading-5 text-blue-700">
-              Surat belum resmi dan belum dikirim ke RW. Tahap approval,
-              tanda tangan, dan penerbitan PDF akan kita tambahkan berikutnya.
+              Setelah draft tersimpan, kirim dari halaman detail agar masuk ke
+              antrean RT. Surat mengikuti pemeriksaan RT lalu RW; PDF resmi
+              menunggu persetujuan dan tanda tangan yang terdaftar.
             </p>
           </div>
 

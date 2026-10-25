@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { SiteBrand } from "@/components/branding/SiteBrand";
+import { MobileBottomNav } from "@/components/navigation/MobileBottomNav";
+import { AppShell } from "@/components/ui/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,11 +26,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <SiteBrand />
-        {children}
-        <footer className="mt-auto mb-16 px-4 py-4 text-center text-xs text-slate-500">
-          © 2026 RW 16 Nuansa Indah Ciomas
-        </footer>
+        <AppShell>{children}</AppShell>
+        <MobileBottomNav />
       </body>
     </html>
   );

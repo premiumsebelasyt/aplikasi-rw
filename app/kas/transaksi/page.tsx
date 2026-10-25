@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
+import { parseKasNominal } from "@/lib/kas/nominal.mjs";
+import { requireMutationRow } from "@/lib/db/require-mutation-row.mjs";
 import { getMonthDateRange, toLocalMonthString } from "@/lib/date";
+import { useKasAuthority } from "@/lib/kas/use-kas-authority";
 
 type Kategori = {
   id: number;
@@ -66,6 +70,7 @@ function formatBulan(value: string) {
 }
 
 export default function TransaksiKasPage() {
+  const { canManage } = useKasAuthority();
   const [bulan, setBulan] = useState(toLocalMonthString);
 
   const [jenisFilter, setJenisFilter] = useState<
@@ -257,10 +262,7 @@ export default function TransaksiKasPage() {
     const keterangan =
       formEdit.keterangan.trim();
 
-    const nominal =
-      Number(
-        formEdit.nominal.replace(/\D/g, "")
-      ) || 0;
+    const nominal = parseKasNominal(formEdit.nominal);
 
     if (!formEdit.tanggal) {
       alert("Tanggal wajib diisi.");
@@ -272,8 +274,8 @@ export default function TransaksiKasPage() {
       return;
     }
 
-    if (nominal <= 0) {
-      alert("Nominal harus lebih dari 0.");
+    if (nominal === null) {
+      alert("Nominal harus berupa rupiah bulat positif yang valid.");
       return;
     }
 
@@ -340,16 +342,14 @@ export default function TransaksiKasPage() {
             : null,
       };
 
-      const { error } = await supabase
+      const { data: updatedRow, error } = await supabase
         .from("kas_transaksi")
         .update(payload)
-        .eq("id", editItem.id);
+        .eq("id", editItem.id)
+        .select("id")
+        .maybeSingle();
 
-      if (error) {
-        throw new Error(
-          `Gagal menyimpan perubahan: ${error.message}`
-        );
-      }
+      requireMutationRow(updatedRow, error, "Gagal menyimpan perubahan transaksi");
 
       setTransaksi((sebelumnya) =>
         sebelumnya.map((item) =>
@@ -424,16 +424,14 @@ export default function TransaksiKasPage() {
         );
       }
 
-      const { error } = await supabase
+      const { data: deletedRow, error } = await supabase
         .from("kas_transaksi")
         .delete()
-        .eq("id", item.id);
+        .eq("id", item.id)
+        .select("id")
+        .maybeSingle();
 
-      if (error) {
-        throw new Error(
-          `Gagal menghapus transaksi: ${error.message}`
-        );
-      }
+      requireMutationRow(deletedRow, error, "Gagal menghapus transaksi");
 
       setTransaksi((sebelumnya) =>
         sebelumnya.filter(
@@ -484,31 +482,10 @@ export default function TransaksiKasPage() {
     : [];
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-24">
+    <main className="min-h-screen bg-[var(--background)] pb-8">
       <div className="mx-auto max-w-5xl px-4 py-5">
 
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-slate-500">
-              Kas RW 16
-            </p>
-
-            <h1 className="text-2xl font-bold text-slate-900">
-              Transaksi Kas
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Riwayat pemasukan dan pengeluaran.
-            </p>
-          </div>
-
-          <Link
-            href="/kas"
-            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200"
-          >
-            ← Kas
-          </Link>
-        </div>
+        <div className="mb-5 -mx-4 -mt-5"><PageHeader eyebrow="Kas RW 16" title="Transaksi Kas" subtitle="Riwayat pemasukan dan pengeluaran" backHref="/kas" /></div>
 
         <section className="mb-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
 
@@ -516,7 +493,7 @@ export default function TransaksiKasPage() {
             Periode
           </label>
 
-          <input
+          <input aria-label="Periode"
             type="month"
             value={bulan}
             onChange={(e) =>
@@ -632,7 +609,7 @@ export default function TransaksiKasPage() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            {canManage && <div className="flex gap-2">
               <Link
                 href="/kas/tambah?pemasukan=1"
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white"
@@ -646,7 +623,7 @@ export default function TransaksiKasPage() {
               >
                 + Keluar
               </Link>
-            </div>
+            </div>}
           </div>
 
           {loading ? (
@@ -757,7 +734,7 @@ export default function TransaksiKasPage() {
 
                       </div>
 
-                      {!item.kas_ipk_id ? (
+                      {canManage && !item.kas_ipk_id ? (
                         <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
 
                           <button
@@ -792,11 +769,11 @@ export default function TransaksiKasPage() {
                           </button>
 
                         </div>
-                      ) : (
+                      ) : item.kas_ipk_id ? (
                         <p className="mt-3 border-t border-slate-100 pt-3 text-[10px] font-semibold text-slate-400">
                           Transaksi ini dikelola dari menu IPK Warga.
                         </p>
-                      )}
+                      ) : null}
 
                     </div>
                   );
@@ -843,7 +820,7 @@ export default function TransaksiKasPage() {
                   Jenis
                 </label>
 
-                <select
+                <select aria-label="Jenis"
                   value={formEdit.jenis}
                   onChange={(e) =>
                     setFormEdit({
@@ -872,7 +849,7 @@ export default function TransaksiKasPage() {
                   Tanggal
                 </label>
 
-                <input
+                <input aria-label="Tanggal"
                   type="date"
                   value={formEdit.tanggal}
                   onChange={(e) =>
@@ -891,7 +868,7 @@ export default function TransaksiKasPage() {
                   Kategori
                 </label>
 
-                <select
+                <select aria-label="Kategori"
                   value={
                     formEdit.kategori_id
                   }
@@ -926,7 +903,7 @@ export default function TransaksiKasPage() {
                   Keterangan
                 </label>
 
-                <textarea
+                <textarea aria-label="Keterangan"
                   value={
                     formEdit.keterangan
                   }
@@ -953,7 +930,7 @@ export default function TransaksiKasPage() {
                       Rp
                     </span>
 
-                    <input
+                    <input aria-label="Nominal"
                       type="text"
                       inputMode="numeric"
                       value={
@@ -975,7 +952,7 @@ export default function TransaksiKasPage() {
                   RT
                 </label>
 
-                <select
+                <select aria-label="RT (opsional)"
                   value={formEdit.rt}
                   onChange={(e) =>
                     setFormEdit({
@@ -1008,7 +985,7 @@ export default function TransaksiKasPage() {
                     : "Penerima"}
                 </label>
 
-                <input
+                <input aria-label={formEdit.jenis === "PEMASUKAN" ? "Sumber Pemasukan" : "Penerima"}
                   type="text"
                   value={formEdit.sumber}
                   onChange={(e) =>

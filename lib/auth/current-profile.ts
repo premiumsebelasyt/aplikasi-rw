@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
+import { isActiveProfile } from "@/lib/auth/profile-status.mjs";
 
 export type CurrentProfile = {
   id: string;
@@ -10,6 +11,7 @@ export type CurrentProfile = {
   nama_lengkap: string | null;
   nik: string | null;
   no_hp: string | null;
+  aktif: boolean;
 };
 
 export type VerifiedCurrentProfile = { user: User; profile: CurrentProfile };
@@ -59,10 +61,10 @@ export async function getVerifiedCurrentProfile(): Promise<VerifiedCurrentProfil
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, role, rt, no_kk, nama, nama_lengkap, nik, no_hp")
+      .select("id, role, rt, no_kk, nama, nama_lengkap, nik, no_hp, aktif")
       .eq("id", authData.user.id)
       .maybeSingle();
-    if (profileError || !profile) return null;
+    if (profileError || !profile || !isActiveProfile(profile)) return null;
 
     const value = { user: authData.user, profile: profile as CurrentProfile };
     cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };

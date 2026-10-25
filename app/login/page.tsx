@@ -22,34 +22,22 @@ export default function LoginPage() {
   const [messageIsError, setMessageIsError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const isWarga = role === "WARGA";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mode === "register") {
+      setMessageIsError(true);
+      setMessage("Pendaftaran mandiri belum tersedia. Hubungi pengurus RW untuk verifikasi dan aktivasi akun.");
+      return;
+    }
     setSubmitting(true);
     setMessage("");
     setMessageIsError(false);
     const formData = new FormData(event.currentTarget);
 
     try {
-      if (mode === "register") {
-        const response = await fetch("/api/auth/sign-up", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            no_kk: formData.get("no_kk"),
-            email: formData.get("email"),
-            no_hp: formData.get("no_hp"),
-            password: formData.get("password"),
-          }),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error ?? "Pendaftaran gagal.");
-        setMessage(result.message ?? "Pendaftaran diterima. Periksa email untuk verifikasi akun.");
-        setSubmitting(false);
-        return;
-      }
-
       const response = await fetch("/api/auth/sign-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -59,23 +47,32 @@ export default function LoginPage() {
           password: formData.get("password"),
         }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Login gagal.");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setMessageIsError(true);
+        setMessage(typeof result.error === "string" ? result.error : "Layanan login menolak permintaan. Coba lagi.");
+        return;
+      }
 
       const { error: sessionError } = await supabase.auth.setSession(result.session);
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        setMessageIsError(true);
+        setMessage("Autentikasi diterima, tetapi sesi aplikasi tidak dapat disimpan. Coba lagi.");
+        return;
+      }
 
       const homeByRole: Record<AccessRole, string> = {
         WARGA: "/",
         RT: "/rt",
         RW: "/",
         BENDAHARA: "/kas",
-        ADMIN: "/",
+        ADMIN: "/menu",
       };
       router.replace(homeByRole[result.role as AccessRole] ?? "/");
-    } catch (submitError) {
+    } catch {
       setMessageIsError(true);
-      setMessage(submitError instanceof Error ? submitError.message : "Terjadi kesalahan. Coba lagi.");
+      setMessage("Layanan login tidak dapat dihubungi. Periksa koneksi dan coba lagi.");
+    } finally {
       setSubmitting(false);
     }
   }
@@ -116,132 +113,69 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] px-4 py-8 text-slate-800 sm:py-12">
-      <div className="mx-auto max-w-lg">
-        <section className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-8">
-          <div className="mb-7">
-            <p className="text-sm font-semibold text-emerald-800">RW 16 · Nuansa Indah Ciomas</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Masuk ke layanan warga</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Pilih jenis akun agar diarahkan ke akses yang sesuai.</p>
+    <main className="login-screen relative isolate min-h-[100svh] overflow-x-hidden bg-white px-5 text-slate-800">
+      <div aria-hidden="true" className="login-foliage pointer-events-none absolute inset-x-0 bottom-0 h-36" />
+      <div className="relative z-10 mx-auto flex min-h-[100svh] w-full max-w-[420px] flex-col justify-center pb-8 pt-7">
+        <section className="w-full px-1">
+          <div className="mb-5">
+            <h1 className="text-[23px] font-bold leading-7 tracking-tight text-slate-900">{mode === "register" ? "Aktivasi akun warga" : recoveryOpen ? "Lupa password?" : "Masuk ke layanan warga"}</h1>
+            <p className="mt-1.5 text-sm leading-5 text-slate-500">{mode === "register" ? "Akun harus diverifikasi dan dihubungkan ke keluarga oleh pengurus RW." : recoveryOpen ? "Masukkan informasi akun untuk menerima tautan pemulihan." : "Akses keluarga dan pengajuan surat."}</p>
           </div>
 
-          <label className="block text-sm font-semibold text-slate-700" htmlFor="account-role">Jenis akun</label>
-          <div className="relative mt-2">
-            <select
-              id="account-role"
-              value={role}
-              onChange={(event) => chooseRole(event.target.value as AccessRole)}
-              className="min-h-14 w-full appearance-none rounded-2xl border border-slate-300 bg-white px-4 pr-12 text-base font-semibold text-slate-900 outline-none transition hover:border-emerald-600 focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
-            >
-              {roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lg text-emerald-800">⌄</span>
-          </div>
-          <p className="mt-2 text-sm leading-5 text-slate-500">{roles.find((item) => item.id === role)?.description}</p>
+          {!recoveryOpen && <>
+            <label className="block text-[13px] font-semibold text-slate-800" htmlFor="account-role">Jenis akun</label>
+            <div className="relative mt-1.5">
+              <select id="account-role" value={role} onChange={(event) => chooseRole(event.target.value as AccessRole)} className="min-h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3.5 pr-10 text-sm font-medium text-slate-800 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">
+                {roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"><path d="m7 10 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </div>
+          </>}
 
-          <div className="mt-6 flex rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Akses akun">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "login"}
-              onClick={() => { setMode("login"); setMessage(""); }}
-              className={`min-h-11 flex-1 rounded-lg text-sm font-semibold ${mode === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
-            >
-              Masuk
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "register"}
-              disabled={!isWarga}
-              onClick={() => { setMode("register"); setMessage(""); }}
-              className={`min-h-11 flex-1 rounded-lg text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${mode === "register" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600"}`}
-            >
-              Daftar akun warga
-            </button>
-          </div>
-
-          <form className="mt-6 space-y-4" onSubmit={submit}>
-            {mode === "register" ? (
-              <>
-                <label className="block text-sm font-medium text-slate-700">
-                  Nomor KK
-                  <input required name="no_kk" inputMode="numeric" autoComplete="off" minLength={16} maxLength={16} pattern="[0-9]{16}" placeholder="16 digit nomor KK" className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-                  <span className="mt-1 block text-xs font-normal text-slate-500">Gunakan KK yang terdaftar di data warga RW 16.</span>
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Email aktif
-                  <input required name="email" type="email" autoComplete="email" placeholder="nama@email.com" className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-                  <span className="mt-1 block text-xs font-normal text-slate-500">Email dipakai untuk verifikasi dan pemulihan password.</span>
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Nomor HP
-                  <input required name="no_hp" type="tel" autoComplete="tel" inputMode="tel" placeholder="08xxxxxxxxxx" className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-                </label>
-              </>
-            ) : (
-              <label className="block text-sm font-medium text-slate-700">
-                {isWarga ? "Nomor KK" : "ID Login"}
-                <input
-                  required
-                  name="identifier"
-                  type="text"
-                  inputMode={isWarga ? "numeric" : "text"}
-                  autoComplete="username"
-                  maxLength={isWarga ? 16 : undefined}
-                  pattern={isWarga ? "[0-9]{16}" : undefined}
-                  placeholder={isWarga ? "16 digit nomor KK" : "ID dari administrator"}
-                  className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100"
-                />
+          {mode === "register" ? (
+            <div className="mt-4 space-y-3.5">
+              <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-950">Pendaftaran mandiri belum tersedia. Tidak ada akun yang dibuat. Hubungi pengurus RW untuk verifikasi data keluarga dan aktivasi akun.</p>
+            </div>
+          ) : <form className="mt-4 space-y-3.5" onSubmit={submit}>
+            {!recoveryOpen ? (
+              <label className="block text-[13px] font-semibold text-slate-800">{isWarga ? "Nomor KK" : "ID Login atau email internal"}
+                <input required name="identifier" type="text" inputMode={isWarga ? "numeric" : "text"} autoComplete="username" maxLength={isWarga ? 16 : 48} pattern={isWarga ? "[0-9]{16}" : undefined} placeholder={isWarga ? "Masukkan nomor KK" : "Contoh: ketua-rt01 atau ketua-rt01@rw16.mail"} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 px-3.5 text-sm font-normal outline-none placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
               </label>
-            )}
+            ) : null}
 
-            <label className="block text-sm font-medium text-slate-700">
-              Password
-              <input required name="password" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} minLength={8} placeholder={mode === "register" ? "Minimal 8 karakter" : "Masukkan password"} className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-            </label>
-            {!isWarga && mode === "login" && <p className="-mt-2 text-xs leading-5 text-slate-500">Gunakan ID login yang diberikan administrator RW.</p>}
-
-            {mode === "login" && !recoveryOpen && (
-              <div className="text-right">
-                <button type="button" onClick={() => { setRecoveryOpen(true); setMessage(""); }} className="min-h-10 text-sm font-semibold text-emerald-800 hover:text-emerald-950">
-                  Lupa password?
+            {!recoveryOpen && <label className="block text-[13px] font-semibold text-slate-800">Password
+              <span className="relative mt-1.5 block">
+                <input required name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder="Masukkan password" className="min-h-11 w-full rounded-xl border border-slate-200 px-3.5 pr-12 text-sm font-normal outline-none placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+                <button type="button" aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"} onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-lg text-slate-500 hover:bg-slate-50">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[18px] w-[18px]"><path strokeLinecap="round" strokeLinejoin="round" d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
                 </button>
-              </div>
-            )}
+              </span>
+            </label>}
 
-            {message && <p role={messageIsError ? "alert" : "status"} className={`rounded-xl border p-3 text-sm leading-6 ${messageIsError ? "border-red-200 bg-red-50 text-red-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{message}</p>}
+            {mode === "login" && !recoveryOpen && <div className="-mt-1 flex justify-end"><button type="button" onClick={() => { setRecoveryOpen(true); setMessage(""); }} className="min-h-11 text-xs font-semibold text-emerald-700 hover:text-emerald-900">Lupa password?</button></div>}
+            {message && <p role={messageIsError ? "alert" : "status"} className={`rounded-xl border p-3 text-sm leading-5 ${messageIsError ? "border-red-200 bg-red-50 text-red-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{message}</p>}
+            {!recoveryOpen && <button type="submit" disabled={submitting} className="min-h-12 w-full rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60">
+              {submitting ? "Memeriksa akun…" : `Masuk sebagai ${roles.find((item) => item.id === role)?.label}`}
+            </button>}
+          </form>}
 
-            <button type="submit" disabled={submitting} className="min-h-12 w-full rounded-xl bg-emerald-800 px-4 font-semibold text-white transition hover:bg-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60">
-              {submitting ? "Memproses…" : mode === "register" ? "Daftar sebagai Kepala Keluarga" : `Masuk sebagai ${roles.find((item) => item.id === role)?.label}`}
-            </button>
-          </form>
+          {recoveryOpen && <form onSubmit={submitRecovery} className="mt-4 space-y-3 rounded-2xl bg-emerald-50/70 p-4">
+            <label className="block text-[13px] font-semibold text-slate-800">{isWarga ? "Nomor KK" : "ID Login"}
+              <input required name="recovery_identifier" inputMode={isWarga ? "numeric" : "text"} maxLength={isWarga ? 16 : undefined} pattern={isWarga ? "[0-9]{16}" : undefined} placeholder={isWarga ? "Masukkan nomor KK" : "Masukkan ID login"} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+            </label>
+            <label className="block text-[13px] font-semibold text-slate-800">Email terdaftar
+              <input required type="email" name="recovery_email" autoComplete="email" placeholder="nama@email.com" className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-normal outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+            </label>
+            <div className="flex gap-2"><button type="button" onClick={() => { setRecoveryOpen(false); setMessage(""); }} className="min-h-11 flex-1 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700">Batal</button><button disabled={submitting} className="min-h-11 flex-1 rounded-xl bg-emerald-700 text-sm font-semibold text-white disabled:opacity-60">{submitting ? "Mengirim…" : "Kirim tautan"}</button></div>
+          </form>}
 
-          {mode === "login" && recoveryOpen && (
-            <form onSubmit={submitRecovery} className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div>
-                <h2 className="font-semibold text-slate-900">Pulihkan password</h2>
-                <p className="mt-1 text-xs leading-5 text-slate-600">Masukkan ID akun dan email yang terdaftar. Tautan hanya dikirim jika keduanya cocok.</p>
-              </div>
-              <label className="block text-sm font-medium text-slate-700">{isWarga ? "Nomor KK" : "ID Login"}
-                <input required name="recovery_identifier" inputMode={isWarga ? "numeric" : "text"} maxLength={isWarga ? 16 : undefined} pattern={isWarga ? "[0-9]{16}" : undefined} placeholder={isWarga ? "16 digit nomor KK" : "ID dari administrator"} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">Email terdaftar
-                <input required type="email" name="recovery_email" autoComplete="email" placeholder="nama@email.com" className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
-              </label>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => { setRecoveryOpen(false); setMessage(""); }} className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700">Batal</button>
-                <button disabled={submitting} className="min-h-11 flex-1 rounded-xl bg-emerald-800 px-3 text-sm font-semibold text-white disabled:opacity-60">{submitting ? "Mengirim…" : "Kirim tautan"}</button>
-              </div>
-            </form>
-          )}
-
-          {isWarga && mode === "login" && <p className="mt-5 text-center text-sm text-slate-600">Belum punya akun? <button type="button" onClick={() => { setMode("register"); setMessage(""); }} className="font-semibold text-emerald-800 hover:text-emerald-950">Daftar sekarang</button></p>}
-
-          {!isWarga && <p className="mt-5 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Akun petugas dibuat atau ditetapkan oleh administrator.</p>}
+          {mode === "login" && !recoveryOpen && isWarga && <p className="mt-4 text-center text-xs text-slate-500">Belum punya akun? <button type="button" onClick={() => { setMode("register"); setMessage(""); }} className="font-bold text-emerald-700">Daftar akun warga</button></p>}
+          {mode === "register" && <button type="button" onClick={() => { setMode("login"); setMessage(""); }} className="mt-4 min-h-11 w-full text-center text-sm font-semibold text-emerald-700">Kembali ke masuk</button>}
+          {mode === "login" && recoveryOpen && <button type="button" onClick={() => { setRecoveryOpen(false); setMessage(""); }} className="mt-4 min-h-10 w-full text-center text-sm font-semibold text-emerald-700">Kembali ke masuk</button>}
+          {!isWarga && mode === "login" && !recoveryOpen && <p className="mt-3 text-center text-[11px] leading-4 text-slate-500">Akun petugas dibuat oleh administrator RW.</p>}
         </section>
 
-        <p className="px-4 py-5 text-center text-xs leading-5 text-slate-500">Data akun digunakan untuk layanan administrasi RW 16 Nuansa Indah Ciomas.</p>
+        <p className="mt-4 text-center text-[10px] text-slate-500">© 2026 RW 16 Nuansa Indah Ciomas</p>
       </div>
     </main>
   );

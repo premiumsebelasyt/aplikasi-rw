@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 import { ambilKategoriWarga } from "@/lib/warga/kategori";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
 import { simpanDataWarga } from "@/lib/warga/data";
@@ -159,30 +160,8 @@ export default function TambahWargaPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] pb-10">
-      <header className="bg-emerald-900 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="mb-4 text-sm text-emerald-100"
-          >
-            ← Kembali
-          </button>
-
-          <p className="text-sm text-emerald-100">
-            Nuansa Indah Ciomas
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Tambah Warga
-          </h1>
-
-          <p className="mt-1 text-sm text-emerald-100">
-            Tambahkan data warga RW 16
-          </p>
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-10">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Tambah Warga" subtitle="Tambahkan data warga RW 16" backHref="/warga" />
 
       <div className="mx-auto max-w-xl px-4 py-5">
         <form
@@ -200,10 +179,13 @@ export default function TambahWargaPage() {
                   NIK *
                 </label>
 
-                <input
+                <input aria-label="NIK"
                   type="text"
                   inputMode="numeric"
+                  required
                   maxLength={16}
+                  minLength={16}
+                  pattern="[0-9]{16}"
                   value={nik}
                   onChange={(e) =>
                     setNik(
@@ -220,10 +202,12 @@ export default function TambahWargaPage() {
                   Nomor KK
                 </label>
 
-                <input
+                <input aria-label="Nomor KK"
                   type="text"
                   inputMode="numeric"
                   maxLength={16}
+                  minLength={16}
+                  pattern="[0-9]{16}"
                   value={noKk}
                   onChange={(e) =>
                     setNoKk(
@@ -240,7 +224,7 @@ export default function TambahWargaPage() {
                   Nama Lengkap *
                 </label>
 
-                <input
+                <input aria-label="Nama Lengkap"
                   type="text"
                   value={nama}
                   onChange={(e) =>
@@ -256,7 +240,7 @@ export default function TambahWargaPage() {
                   Alamat *
                 </label>
 
-                <textarea
+                <textarea aria-label="Alamat"
                   value={alamat}
                   onChange={(e) =>
                     setAlamat(e.target.value)
@@ -272,7 +256,7 @@ export default function TambahWargaPage() {
                   RT *
                 </label>
 
-                <select
+                <select aria-label="RT"
                   value={rt}
                   onChange={(e) =>
                     setRt(e.target.value)
@@ -318,6 +302,7 @@ export default function TambahWargaPage() {
                     <button
                       key={item.id}
                       type="button"
+                      aria-pressed={dipilih}
                       onClick={() =>
                         toggleKategori(item.id)
                       }
@@ -366,7 +351,7 @@ export default function TambahWargaPage() {
                   Jenis Kelamin
                 </label>
 
-                <select
+                <select aria-label="Jenis Kelamin"
                   value={jenisKelamin}
                   onChange={(e) =>
                     setJenisKelamin(e.target.value)
@@ -386,7 +371,7 @@ export default function TambahWargaPage() {
                   Tempat Lahir
                 </label>
 
-                <input
+                <input aria-label="Tempat Lahir"
                   type="text"
                   value={tempatLahir}
                   onChange={(e) =>
@@ -402,7 +387,7 @@ export default function TambahWargaPage() {
                   Tanggal Lahir
                 </label>
 
-                <input
+                <input aria-label="Tanggal Lahir"
                   type="date"
                   value={tanggalLahir}
                   onChange={(e) =>
@@ -417,7 +402,7 @@ export default function TambahWargaPage() {
                   Agama
                 </label>
 
-                <select
+                <select aria-label="Agama"
                   value={agama}
                   onChange={(e) =>
                     setAgama(e.target.value)
@@ -439,7 +424,7 @@ export default function TambahWargaPage() {
                   Status Perkawinan
                 </label>
 
-                <select
+                <select aria-label="Status Perkawinan"
                   value={statusPerkawinan}
                   onChange={(e) =>
                     setStatusPerkawinan(e.target.value)
@@ -475,7 +460,7 @@ export default function TambahWargaPage() {
                   Nomor HP
                 </label>
 
-                <input
+                <input aria-label="Nomor HP"
                   type="tel"
                   value={noHp}
                   onChange={(e) =>
@@ -491,7 +476,7 @@ export default function TambahWargaPage() {
                   Pendidikan
                 </label>
 
-                <input
+                <input aria-label="Pendidikan"
                   type="text"
                   value={pendidikan}
                   onChange={(e) =>
@@ -507,7 +492,7 @@ export default function TambahWargaPage() {
                   Pekerjaan
                 </label>
 
-                <input
+                <input aria-label="Pekerjaan"
                   type="text"
                   value={pekerjaan}
                   onChange={(e) =>
@@ -523,7 +508,7 @@ export default function TambahWargaPage() {
                   Status Tinggal
                 </label>
 
-                <select
+                <select aria-label="Status Tinggal"
                   value={statusTinggal}
                   onChange={(e) =>
                     setStatusTinggal(e.target.value)

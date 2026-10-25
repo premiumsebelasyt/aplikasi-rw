@@ -1,1018 +1,151 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type PointerEvent,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PageHeader } from "@/components/ui/AppShell";
 import { supabase } from "@/lib/supabase/client";
-import { downloadSuratPdf } from "@/lib/surat/pdf";
+import { sendSuratCommand } from "@/lib/surat/command-client";
 
-type Surat = {
+type SuratRow = {
   id: number;
   warga_id: number;
-  jenis_surat: string;
-  keperluan: string | null;
+  keluarga_id: string;
+  rt_id_at_submission: string;
   rt: string;
-  rw: string;
+  jenis_surat: string;
+  payload: Record<string, unknown>;
   status: string;
+  workflow_version: number;
+  nomor_surat: string | null;
+  ditolak_alasan: string | null;
   created_at: string;
-
   ttd_rt: boolean;
   ttd_rt_at: string | null;
   ttd_rt_nama: string | null;
-  ttd_rt_gambar: string | null;
-
   ttd_rw: boolean;
   ttd_rw_at: string | null;
   ttd_rw_nama: string | null;
-  ttd_rw_gambar: string | null;
 };
 
-type Warga = {
-  id: number;
-  nama: string;
-  nik: string;
-  no_kk: string | null;
-  alamat: string | null;
+type WargaRow = { id: number; nama: string; nik: string; no_kk: string | null; alamat: string | null };
+type HistoryRow = { id: number; action: string; from_status: string | null; to_status: string | null; actor_role: string | null; occurred_at: string };
+type SuratDetail = SuratRow & { warga: WargaRow | null };
+
+const statusLabel: Record<string, string> = {
+  DRAFT: "Draft",
+  MENUNGGU_RT: "Menunggu pemeriksaan RT",
+  DISETUJUI_RT: "Disetujui RT · menunggu diteruskan",
+  MENUNGGU_RW: "Menunggu pemeriksaan RW",
+  DISETUJUI_RW: "Disetujui RW · finalisasi PDF menunggu",
+  PERLU_PERBAIKAN: "Perlu perbaikan",
+  FINALIZING_PDF: "PDF sedang difinalisasi",
+  PDF_RETRY: "Finalisasi PDF perlu dicoba ulang oleh server",
+  TERBIT: "Terbit",
+  DIBATALKAN: "Dibatalkan",
 };
 
-type DetailSurat = Surat & {
-  warga: Warga | null;
-};
-
-export default function DetailSuratPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function DetailSuratPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-
-  const [surat, setSurat] = useState<DetailSurat | null>(null);
+  const [surat, setSurat] = useState<SuratDetail | null>(null);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
   const [role, setRole] = useState("");
+  const [keperluan, setKeperluan] = useState("");
   const [loading, setLoading] = useState(true);
-  const [prosesTtd, setProsesTtd] = useState(false);
-  const [pesan, setPesan] = useState("");
-  const [namaTtd, setNamaTtd] = useState("");
-  const [mengunduhPdf, setMengunduhPdf] = useState(false);
-  const [pesanPdf, setPesanPdf] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawingRef = useRef(false);
-  const hasSignatureRef = useRef(false);
+  const load = useCallback(async (id: number) => {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError || !auth.user) { router.replace("/login"); return; }
+    const { data: profile, error: profileError } = await supabase.from("profiles")
+      .select("role, no_kk, rt")
+      .eq("id", auth.user.id).maybeSingle();
+    if (profileError || !profile) throw new Error("Profil akses akun belum tersedia.");
+    if (!["WARGA", "RT", "ADMIN"].includes(profile.role)) {
+      router.replace(profile.role === "RW" ? `/rw/surat/${id}` : profile.role === "BENDAHARA" ? "/kas" : "/login");
+      return;
+    }
+    const { data, error } = await supabase.from("surat").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Surat tidak ditemukan atau Anda tidak memiliki akses.");
+    const { data: warga, error: wargaError } = await supabase.from("warga")
+      .select("id, nama, nik, no_kk, alamat").eq("id", data.warga_id).maybeSingle();
+    if (wargaError) throw wargaError;
+    const { data: events, error: historyError } = await supabase.from("surat_history")
+      .select("id, action, from_status, to_status, actor_role, occurred_at")
+      .eq("surat_id", id).order("occurred_at", { ascending: true });
+    if (historyError) throw historyError;
+    if (profile.role === "WARGA" && (!profile.no_kk || warga?.no_kk !== profile.no_kk)) throw new Error("Surat tidak ditemukan.");
+    if (profile.role === "RT" && profile.rt !== data.rt) throw new Error("Surat tidak ditemukan.");
+    const row = { ...data, warga: warga ?? null } as SuratDetail;
+    setRole(profile.role);
+    setSurat(row);
+    setHistory(events ?? []);
+    setKeperluan(typeof row.payload?.keperluan === "string" ? row.payload.keperluan : "");
+  }, [router]);
 
   useEffect(() => {
     let active = true;
-    async function ambilDetail() {
-      try {
-        const { id } = await params;
-        if (!active) return;
-        const suratId = Number(id);
-
-        const { data: authData, error: authError } = await supabase.auth.getUser();
-        if (!active) return;
-        if (authError || !authData.user) {
-          router.replace("/login");
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("role, no_kk, rt, nama_lengkap")
-          .eq("id", authData.user.id)
-          .maybeSingle();
-        if (!active) return;
-        if (profileError || !profile) throw new Error("Profil akses akun belum tersedia.");
-        if (!suratId) throw new Error("ID surat tidak valid.");
-
-        const { data: dataSurat, error: suratError } = await supabase
-          .from("surat")
-          .select("*")
-          .eq("id", suratId)
-          .single();
-        if (!active) return;
-        if (suratError) throw suratError;
-        if (!dataSurat) throw new Error("Surat tidak ditemukan.");
-
-        let dataWarga: Warga | null = null;
-        if (dataSurat.warga_id) {
-          const { data: warga, error: wargaError } = await supabase
-            .from("warga")
-            .select("id, nama, nik, no_kk, alamat")
-            .eq("id", dataSurat.warga_id)
-            .single();
-          if (!active) return;
-          if (wargaError && wargaError.code !== "PGRST116") throw wargaError;
-          dataWarga = warga || null;
-        }
-
-        if (profile.role === "WARGA" && (!profile.no_kk || dataWarga?.no_kk !== profile.no_kk)) {
-          throw new Error("Surat tidak ditemukan.");
-        }
-        if (profile.role === "RT" && profile.rt !== dataSurat.rt) {
-          throw new Error("Surat tidak ditemukan.");
-        }
-        if (!["WARGA", "RT"].includes(profile.role)) {
-          router.replace(profile.role === "RW" ? `/rw/surat/${suratId}` : profile.role === "BENDAHARA" ? "/kas" : "/login");
-          return;
-        }
-
-        setRole(profile.role);
-        setSurat({ ...dataSurat, warga: dataWarga });
-        setNamaTtd(dataSurat.ttd_rt_nama || profile.nama_lengkap || "");
-      } catch (error) {
-        console.error("Gagal mengambil detail surat:", error);
-        if (active) {
-          setPesan(error instanceof Error ? error.message : String(error));
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    void ambilDetail();
+    void params.then(({ id }) => {
+      const parsed = Number(id);
+      if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error("ID surat tidak valid.");
+      return load(parsed);
+    }).catch((error: unknown) => { if (active) setMessage(error instanceof Error ? error.message : "Gagal memuat surat."); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [params, router]);
+  }, [params, load]);
 
-  async function unduhSuratPdf() {
-    if (!surat?.warga) return;
-    setMengunduhPdf(true);
-    setPesanPdf("");
-    try {
-      await downloadSuratPdf(surat, {
-        nama: surat.warga.nama,
-        nik: surat.warga.nik,
-        no_kk: surat.warga.no_kk,
-        alamat: surat.warga.alamat,
-        rt: surat.rt,
-      });
-    } catch (error) {
-      setPesanPdf(error instanceof Error ? error.message : "PDF gagal dibuat.");
-    } finally {
-      setMengunduhPdf(false);
-    }
+  async function submitCorrection() {
+    if (!surat || !keperluan.trim()) { setMessage("Keperluan surat wajib diisi."); return; }
+    setBusy(true); setMessage("");
+    const { error } = await supabase.rpc("submit_surat", {
+      p_surat_id: surat.id,
+      p_payload: { ...surat.payload, keperluan: keperluan.trim() },
+    });
+    if (error) setMessage("Pengajuan gagal disimpan. Surat mungkin sudah berpindah tahap.");
+    else { setMessage("Surat berhasil dikirim ke antrean RT."); await load(surat.id); }
+    setBusy(false);
   }
 
-  function setupCanvas(canvas: HTMLCanvasElement) {
-    const rect = canvas.getBoundingClientRect();
-
-    const dpr =
-      typeof window !== "undefined"
-        ? window.devicePixelRatio || 1
-        : 1;
-
-    const width = rect.width;
-    const height = 220;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "#111827";
-  }
-
-  useEffect(() => {
+  async function runCommand(command: string, reason?: string) {
     if (!surat) return;
-
-    if (surat.status !== "DRAFT") return;
-
-    if (surat.ttd_rt) return;
-
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    setupCanvas(canvas);
-
-    const handleResize = () => {
-      /*
-       * Jangan reset canvas kalau user sedang menggambar.
-       * Untuk MVP ini canvas hanya disiapkan ulang ketika
-       * ukuran layar berubah.
-       */
-      if (!drawingRef.current && !hasSignatureRef.current) {
-        setupCanvas(canvas);
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [surat]);
-
-  function getCanvasPosition(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
-    const canvas = canvasRef.current;
-
-    if (!canvas) {
-      return {
-        x: 0,
-        y: 0,
-      };
-    }
-
-    const rect = canvas.getBoundingClientRect();
-
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-  }
-
-  function mulaiGambar(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
-    if (surat?.ttd_rt) return;
-
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    drawingRef.current = true;
-
-    canvas.setPointerCapture(event.pointerId);
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    const { x, y } = getCanvasPosition(event);
-
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-
-    hasSignatureRef.current = true;
-  }
-
-  function gambar(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
-    if (!drawingRef.current) return;
-
-    if (surat?.ttd_rt) return;
-
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    const { x, y } = getCanvasPosition(event);
-
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  }
-
-  function selesaiGambar(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
-    drawingRef.current = false;
-
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
+    setBusy(true); setMessage("");
     try {
-      canvas.releasePointerCapture(event.pointerId);
-    } catch {}
-  }
-
-  function hapusTandaTangan() {
-    const canvas = canvasRef.current;
-
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) return;
-
-    ctx.clearRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-
-    hasSignatureRef.current = false;
-
-    setupCanvas(canvas);
-  }
-
-  async function tandaTanganiRT() {
-    if (!surat) return;
-
-    const namaBersih = namaTtd.trim();
-
-    if (!namaBersih) {
-      setPesan(
-        "Nama Ketua RT wajib diisi sebelum tanda tangan."
-      );
-      return;
-    }
-
-    const canvas = canvasRef.current;
-
-    if (!canvas) {
-      setPesan(
-        "Kotak tanda tangan belum siap. Silakan coba lagi."
-      );
-      return;
-    }
-
-    if (!hasSignatureRef.current) {
-      setPesan(
-        "Tanda tangan belum dibuat. Silakan gambar tanda tangan pada kotak terlebih dahulu."
-      );
-      return;
-    }
-
-    setProsesTtd(true);
-    setPesan("");
-
-    try {
-      /*
-       * Canvas disimpan sebagai PNG.
-       * Background canvas dibiarkan transparan sehingga
-       * nantinya bisa langsung dipakai untuk PDF resmi.
-       */
-      const gambarTtd = canvas.toDataURL("image/png");
-
-      const waktuTtd = new Date().toISOString();
-
-      const { data, error } = await supabase
-        .from("surat")
-        .update({
-          ttd_rt: true,
-          ttd_rt_at: waktuTtd,
-          ttd_rt_nama: namaBersih,
-          ttd_rt_gambar: gambarTtd,
-          status: "MENUNGGU_RW",
-        })
-        .eq("id", surat.id)
-        .eq("status", "DRAFT")
-        .select("*")
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      setSurat({
-        ...surat,
-        ttd_rt: true,
-        ttd_rt_at: waktuTtd,
-        ttd_rt_nama: namaBersih,
-        ttd_rt_gambar:
-          data?.ttd_rt_gambar || gambarTtd,
-        status: "MENUNGGU_RW",
-      });
-
-      setPesan(
-        "Surat berhasil ditandatangani RT dan otomatis diteruskan ke inbox RW."
-      );
+      await sendSuratCommand(surat.id, command, reason);
+      setMessage("Perubahan tahap surat berhasil disimpan.");
+      await load(surat.id);
     } catch (error) {
-      console.error(
-        "Gagal tanda tangan RT:",
-        error
-      );
-
-      if (error && typeof error === "object") {
-        const err = error as {
-          message?: string;
-        };
-
-        setPesan(
-          err.message ||
-            "Gagal menyimpan tanda tangan RT."
-        );
-      } else {
-        setPesan(String(error));
-      }
-    } finally {
-      setProsesTtd(false);
-    }
+      setMessage(error instanceof Error ? error.message : "Perubahan surat gagal disimpan.");
+    } finally { setBusy(false); }
   }
 
-  function formatJenisSurat(jenis: string) {
-    const daftar: Record<string, string> = {
-      "surat-pengantar": "Surat Pengantar",
-      "surat-domisili": "Surat Domisili",
-      "surat-keterangan-usaha":
-        "Surat Keterangan Usaha",
-      "surat-keterangan-tidak-mampu":
-        "Surat Keterangan Tidak Mampu",
-      "surat-keterangan-lainnya":
-        "Surat Keterangan Lainnya",
-    };
-
-    return daftar[jenis] || jenis;
+  async function decideRt(decision: "approve" | "reject") {
+    const reason = decision === "reject" ? window.prompt("Alasan surat perlu diperbaiki:") : undefined;
+    if (decision === "reject" && reason === null) return;
+    await runCommand(decision === "approve" ? "rt_approve" : "rt_reject", reason ?? undefined);
   }
 
-  function formatStatus(status: string) {
-    const daftar: Record<string, string> = {
-      DRAFT: "Menunggu TTD RT",
-      MENUNGGU_RW: "Menunggu RW",
-      DISETUJUI: "Disetujui",
-      DITOLAK: "Ditolak",
-      TERBIT: "Terbit",
-    };
-
-    return daftar[status] || status;
-  }
-
-  function warnaStatus(status: string) {
-    switch (status) {
-      case "DRAFT":
-        return "bg-gray-100 text-gray-700";
-
-      case "MENUNGGU_RW":
-        return "bg-yellow-50 text-yellow-700";
-
-      case "DISETUJUI":
-        return "bg-green-50 text-green-700";
-
-      case "DITOLAK":
-        return "bg-red-50 text-red-700";
-
-      case "TERBIT":
-        return "bg-emerald-50 text-emerald-900";
-
-      default:
-        return "bg-gray-100 text-gray-700";
-    }
-  }
-
-  function formatTanggal(tanggal: string) {
-    return new Date(tanggal).toLocaleDateString(
-      "id-ID",
-      {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-      }
-    );
-  }
-
-  function formatTanggalWaktu(tanggal: string) {
-    return new Date(tanggal).toLocaleString(
-      "id-ID",
-      {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    );
-  }
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-gray-100">
-        <div className="mx-auto max-w-xl px-4 py-10">
-          <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
-            <p className="text-sm text-gray-500">
-              Memuat detail surat...
-            </p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (pesan && !surat) {
-    return (
-      <main className="min-h-screen bg-gray-100">
-        <div className="mx-auto max-w-xl px-4 py-10">
-          <div className="rounded-2xl bg-white p-6 shadow-sm">
-            <h1 className="text-xl font-bold text-gray-800">
-              Surat Tidak Ditemukan
-            </h1>
-
-            <p className="mt-2 text-sm text-red-600">
-              {pesan}
-            </p>
-
-            <button
-              type="button"
-              onClick={() => router.push("/surat")}
-              className="mt-5 w-full rounded-xl bg-gray-800 px-4 py-3 text-sm font-bold text-white"
-            >
-              Kembali ke Daftar Surat
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (!surat) {
-    return null;
-  }
-
-  return (
-    <main className="min-h-screen bg-gray-100 pb-10">
-      <header className="bg-emerald-900 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <button
-            type="button"
-            onClick={() => router.push("/surat")}
-            className="text-sm font-semibold text-emerald-100"
-          >
-            ← Kembali ke Daftar Surat
-          </button>
-
-          <p className="mt-5 text-sm text-emerald-100">
-            Sistem Administrasi RW 16
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Detail Surat
-          </h1>
-
-          <p className="mt-1 text-sm text-emerald-100">
-            Surat #{surat.id}
-          </p>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-xl px-4 py-5">
-        {/* INFORMASI UTAMA */}
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-gray-400">
-                JENIS SURAT
-              </p>
-
-              <h2 className="mt-1 text-xl font-bold text-gray-800">
-                {formatJenisSurat(
-                  surat.jenis_surat
-                )}
-              </h2>
-            </div>
-
-            <span
-              className={
-                "shrink-0 rounded-full px-3 py-1 text-xs font-bold " +
-                warnaStatus(surat.status)
-              }
-            >
-              {formatStatus(surat.status)}
-            </span>
-          </div>
-        </div>
-
-        {/* DATA WARGA */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800">
-            Data Warga
-          </h2>
-
-          {surat.warga ? (
-            <div className="mt-4 space-y-4">
-              <div>
-                <p className="text-xs text-gray-400">
-                  Nama
-                </p>
-
-                <p className="mt-1 font-semibold text-gray-800">
-                  {surat.warga.nama}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-400">
-                  NIK
-                </p>
-
-                <p className="mt-1 font-semibold text-gray-800">
-                  {surat.warga.nik}
-                </p>
-              </div>
-
-              {surat.warga.no_kk && (
-                <div>
-                  <p className="text-xs text-gray-400">
-                    No. KK
-                  </p>
-
-                  <p className="mt-1 font-semibold text-gray-800">
-                    {surat.warga.no_kk}
-                  </p>
-                </div>
-              )}
-
-              {surat.warga.alamat && (
-                <div>
-                  <p className="text-xs text-gray-400">
-                    Alamat
-                  </p>
-
-                  <p className="mt-1 text-sm leading-5 text-gray-700">
-                    {surat.warga.alamat}
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="mt-4 text-sm text-red-600">
-              Data warga tidak ditemukan.
-            </p>
-          )}
-        </div>
-
-        {/* INFORMASI SURAT */}
-        <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-800">
-            Informasi Surat
-          </h2>
-
-          <div className="mt-4 grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-gray-400">
-                RT
-              </p>
-
-              <p className="mt-1 font-semibold text-gray-800">
-                RT {surat.rt}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-gray-400">
-                RW
-              </p>
-
-              <p className="mt-1 font-semibold text-gray-800">
-                RW {surat.rw}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <p className="text-xs text-gray-400">
-              Tanggal Dibuat
-            </p>
-
-            <p className="mt-1 font-semibold text-gray-800">
-              {formatTanggal(
-                surat.created_at
-              )}
-            </p>
-          </div>
-
-          {surat.keperluan && (
-            <div className="mt-4">
-              <p className="text-xs text-gray-400">
-                Keperluan
-              </p>
-
-              <div className="mt-2 rounded-xl bg-gray-50 p-4">
-                <p className="text-sm leading-6 text-gray-700">
-                  {surat.keperluan}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* =============================== */}
-        {/* TTD RT */}
-        {/* =============================== */}
-
-        {role === "RT" && surat.status === "DRAFT" && (
-          <>
-            <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-800">
-                    Tanda Tangan RT
-                  </h2>
-
-                  <p className="mt-1 text-sm leading-5 text-gray-500">
-                    Bubuhkan tanda tangan pada
-                    kotak di bawah menggunakan
-                    jari, stylus, atau mouse.
-                  </p>
-                </div>
-
-                <span
-                  className={
-                    surat.ttd_rt
-                      ? "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700"
-                      : "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-700"
-                  }
-                >
-                  {surat.ttd_rt
-                    ? "Sudah TTD"
-                    : "Belum TTD"}
-                </span>
-              </div>
-
-              {!surat.ttd_rt ? (
-                <>
-                  {/* CANVAS */}
-                  <div className="mt-5">
-                    <div className="mb-2 flex items-center justify-between">
-                      <label className="text-sm font-semibold text-gray-700">
-                        Tanda Tangan
-                      </label>
-
-                      <button
-                        type="button"
-                        onClick={
-                          hapusTandaTangan
-                        }
-                        disabled={
-                          prosesTtd
-                        }
-                        className="text-xs font-bold text-red-600"
-                      >
-                        Hapus / Ulangi
-                      </button>
-                    </div>
-
-                    <div className="overflow-hidden rounded-xl border-2 border-dashed border-gray-300 bg-white">
-                      <canvas
-                        ref={canvasRef}
-                        onPointerDown={
-                          mulaiGambar
-                        }
-                        onPointerMove={
-                          gambar
-                        }
-                        onPointerUp={
-                          selesaiGambar
-                        }
-                        onPointerCancel={
-                          selesaiGambar
-                        }
-                        onPointerLeave={
-                          (event) => {
-                            if (
-                              drawingRef.current
-                            ) {
-                              gambar(event);
-                            }
-                          }
-                        }
-                        className="block h-[220px] w-full touch-none"
-                      />
-                    </div>
-
-                    <p className="mt-2 text-center text-xs text-gray-400">
-                      Gambar tanda tangan di
-                      dalam kotak
-                    </p>
-                  </div>
-
-                  {/* NAMA */}
-                  <div className="mt-5">
-                    <label className="text-sm font-semibold text-gray-700">
-                      Nama Ketua RT
-                    </label>
-
-                    <input
-                      type="text"
-                      value={namaTtd}
-                      onChange={(e) => {
-                        setNamaTtd(
-                          e.target.value
-                        );
-                      }}
-                      placeholder="Masukkan nama Ketua RT"
-                      disabled={prosesTtd}
-                      className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-emerald-700 disabled:bg-gray-100"
-                    />
-                  </div>
-
-                  {/* SIMPAN TTD */}
-                  <button
-                    type="button"
-                    onClick={
-                      tandaTanganiRT
-                    }
-                    disabled={prosesTtd}
-                    className="mt-4 w-full rounded-xl bg-emerald-900 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {prosesTtd
-                      ? "Menyimpan..."
-                      : "✍️ Simpan Tanda Tangan RT"}
-                  </button>
-                </>
-              ) : (
-                <div className="mt-5 rounded-xl bg-green-50 p-4">
-                  <p className="text-sm font-bold text-green-800">
-                    ✓ Surat telah
-                    ditandatangani RT
-                  </p>
-
-                  {surat.ttd_rt_gambar && (
-                    <div className="mt-4 rounded-xl border border-green-200 bg-white p-3">
-                      <img
-                        src={
-                          surat.ttd_rt_gambar
-                        }
-                        alt="Tanda tangan RT"
-                        className="h-32 w-full object-contain"
-                      />
-                    </div>
-                  )}
-
-                  {surat.ttd_rt_nama && (
-                    <p className="mt-3 text-sm text-green-700">
-                      Atas nama:{" "}
-                      <span className="font-bold">
-                        {surat.ttd_rt_nama}
-                      </span>
-                    </p>
-                  )}
-
-                  {surat.ttd_rt_at && (
-                    <p className="mt-1 text-xs text-green-600">
-                      {formatTanggalWaktu(
-                        surat.ttd_rt_at
-                      )}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-          </>
-        )}
-
-        {/* PESAN */}
-        {pesan && (
-          <div
-            className={
-              "mt-4 rounded-2xl p-4 text-sm font-semibold " +
-              (pesan.includes(
-                "berhasil"
-              )
-                ? "bg-green-50 text-green-700"
-                : "bg-red-50 text-red-700")
-            }
-          >
-            {pesan}
-          </div>
-        )}
-
-        {/* MENUNGGU RW */}
-        {surat.status ===
-          "MENUNGGU_RW" && (
-          <>
-            <div className="mt-4 rounded-2xl bg-emerald-50 p-5">
-              <p className="font-bold text-emerald-900">
-                Menunggu Persetujuan RW
-              </p>
-
-              <p className="mt-1 text-sm leading-5 text-emerald-900">
-                Surat sudah ditandatangani RT
-                dan diajukan. Sekarang
-                menunggu pemeriksaan serta
-                persetujuan RW.
-              </p>
-            </div>
-
-            {surat.ttd_rt_gambar && (
-              <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-bold text-gray-800">
-                  Tanda Tangan RT
-                </h2>
-
-                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-                  <img
-                    src={
-                      surat.ttd_rt_gambar
-                    }
-                    alt="Tanda tangan RT"
-                    className="h-32 w-full object-contain"
-                  />
-                </div>
-
-                {surat.ttd_rt_nama && (
-                  <p className="mt-3 text-sm text-gray-600">
-                    Ketua RT:{" "}
-                    <span className="font-bold text-gray-800">
-                      {
-                        surat.ttd_rt_nama
-                      }
-                    </span>
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* DISETUJUI */}
-        {surat.status ===
-          "DISETUJUI" && (
-          <>
-            <div className="mt-4 rounded-2xl bg-green-50 p-5">
-              <p className="font-bold text-green-800">
-                Surat Disetujui
-              </p>
-
-              <p className="mt-1 text-sm leading-5 text-green-700">
-                Surat sudah disetujui oleh RW.
-              </p>
-            </div>
-
-            {surat.ttd_rt_gambar && (
-              <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-bold text-gray-800">
-                  Tanda Tangan RT
-                </h2>
-
-                <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-                  <img
-                    src={
-                      surat.ttd_rt_gambar
-                    }
-                    alt="Tanda tangan RT"
-                    className="h-32 w-full object-contain"
-                  />
-                </div>
-
-                {surat.ttd_rt_nama && (
-                  <p className="mt-3 text-sm text-gray-600">
-                    Ketua RT:{" "}
-                    <span className="font-bold text-gray-800">
-                      {
-                        surat.ttd_rt_nama
-                      }
-                    </span>
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* DITOLAK */}
-        {surat.status ===
-          "DITOLAK" && (
-          <div className="mt-4 rounded-2xl bg-red-50 p-5">
-            <p className="font-bold text-red-800">
-              Surat Ditolak
-            </p>
-
-            <p className="mt-1 text-sm leading-5 text-red-700">
-              Surat membutuhkan perbaikan
-              sebelum dapat diajukan kembali.
-            </p>
-          </div>
-        )}
-
-        {/* TERBIT */}
-        {surat.status ===
-          "TERBIT" && (
-          <div className="mt-4 rounded-2xl bg-emerald-50 p-5">
-            <p className="font-bold text-emerald-900">
-              Surat Telah Terbit
-            </p>
-
-            <p className="mt-1 text-sm leading-5 text-emerald-900">
-              Surat resmi telah diterbitkan.
-            </p>
-            {surat.ttd_rt && surat.ttd_rw && surat.warga && (
-              <button
-                type="button"
-                onClick={unduhSuratPdf}
-                disabled={mengunduhPdf}
-                className="mt-4 min-h-12 w-full rounded-xl bg-emerald-800 px-4 text-sm font-bold text-white disabled:opacity-60"
-              >
-                {mengunduhPdf ? "Menyiapkan PDF…" : "Unduh PDF resmi · A4"}
-              </button>
-            )}
-            {pesanPdf && <p role="alert" className="mt-3 text-sm text-red-700">{pesanPdf}</p>}
-          </div>
-        )}
-
-        {role === "WARGA" && surat.status === "DRAFT" && (
-          <div className="mt-4 rounded-2xl bg-amber-50 p-5">
-            <p className="font-bold text-amber-900">Menunggu pemeriksaan RT</p>
-            <p className="mt-1 text-sm leading-5 text-amber-800">Pengajuan sudah tercatat dan menunggu pemeriksaan serta tanda tangan RT.</p>
-          </div>
-        )}
-      </div>
-    </main>
-  );
+  if (loading) return <main className="min-h-screen bg-[var(--background)]"><PageHeader eyebrow="RW 16" title="Detail Surat" /><div className="mx-auto max-w-2xl p-5">Memuat surat…</div></main>;
+  return <main className="min-h-screen bg-[var(--background)] pb-10">
+    <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Detail Surat" subtitle="Riwayat dan tahapan permohonan surat" />
+    <div className="mx-auto max-w-2xl space-y-4 px-4 py-5">
+      {message && <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{message}</p>}
+      {!surat ? <div className="rounded-2xl bg-white p-5">Surat tidak tersedia.</div> : <>
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-slate-500">SURAT #{surat.id} · {surat.rt}</p><h2 className="mt-1 text-xl font-bold">{surat.jenis_surat}</h2></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800">{statusLabel[surat.status] ?? surat.status}</span></div>
+          <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-slate-500">Pemohon</dt><dd className="font-semibold">{surat.warga?.nama ?? "—"}</dd></div><div><dt className="text-slate-500">NIK</dt><dd>{surat.warga?.nik ?? "—"}</dd></div><div><dt className="text-slate-500">Alamat</dt><dd>{surat.warga?.alamat ?? "—"}</dd></div><div><dt className="text-slate-500">Dibuat</dt><dd>{new Date(surat.created_at).toLocaleString("id-ID")}</dd></div></dl>
+          <div className="mt-5 rounded-xl bg-slate-50 p-4"><p className="text-xs font-semibold uppercase text-slate-500">Keperluan</p>{role === "WARGA" && ["DRAFT", "PERLU_PERBAIKAN"].includes(surat.status) ? <textarea value={keperluan} onChange={(event) => setKeperluan(event.target.value)} rows={4} className="mt-2 w-full rounded-lg border p-3" aria-label="Keperluan surat" /> : <p className="mt-2 whitespace-pre-wrap">{keperluan || "—"}</p>}</div>
+          {surat.ditolak_alasan && <p className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">Alasan perbaikan: {surat.ditolak_alasan}</p>}
+          <div className="mt-5 border-t pt-4"><h3 className="font-bold">Riwayat proses</h3>{history.length ? <ol className="mt-3 space-y-3">{history.map((event) => <li key={event.id} className="rounded-lg bg-slate-50 p-3 text-sm"><p className="font-semibold">{event.action.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-600">{event.from_status && event.to_status ? `${event.from_status} → ${event.to_status} · ` : ""}{event.actor_role ?? "Sistem"} · {new Date(event.occurred_at).toLocaleString("id-ID")}</p></li>)}</ol> : <p className="mt-2 text-sm text-slate-500">Belum ada event riwayat.</p>}</div>
+          <div className="mt-5 space-y-3 text-sm"><p>RT: {surat.ttd_rt ? `disetujui/ditandatangani ${surat.ttd_rt_nama ?? "oleh signer terdaftar"}` : "belum disetujui"}</p><p>RW: {surat.ttd_rw ? `disetujui/ditandatangani ${surat.ttd_rw_nama ?? "oleh signer terdaftar"}` : "belum disetujui"}</p><p>Nomor resmi: {surat.nomor_surat ?? "belum dialokasikan"}</p></div>
+          {role === "WARGA" && ["DRAFT", "PERLU_PERBAIKAN"].includes(surat.status) && <button disabled={busy || !keperluan.trim()} onClick={() => void submitCorrection()} className="mt-5 w-full rounded-xl bg-emerald-700 p-3 font-bold text-white disabled:opacity-50">{busy ? "Mengirim…" : surat.status === "DRAFT" ? "Kirim ke RT" : "Kirim ulang ke RT"}</button>}
+          {role === "RT" && surat.status === "MENUNGGU_RT" && <div className="mt-5 grid grid-cols-2 gap-3"><button disabled={busy} onClick={() => void decideRt("reject")} className="rounded-xl bg-red-600 p-3 font-bold text-white disabled:opacity-50">Minta Perbaikan</button><button disabled={busy} onClick={() => void decideRt("approve")} className="rounded-xl bg-emerald-700 p-3 font-bold text-white disabled:opacity-50">Setujui dan TTD RT</button></div>}
+          {role === "RT" && surat.status === "DISETUJUI_RT" && <button disabled={busy} onClick={() => void runCommand("rt_queue")} className="mt-5 w-full rounded-xl bg-emerald-700 p-3 font-bold text-white disabled:opacity-50">Teruskan ke RW</button>}
+          {surat.status === "DISETUJUI_RW" && <p className="mt-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-900">Persetujuan RW dan tanda tangan tercatat. Surat belum TERBIT sampai worker backend menyimpan dan memverifikasi PDF privat.</p>}
+          {surat.status === "TERBIT" && <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">Surat telah terbit dan PDF final disimpan secara privat. Pengunduhan PDF dari aplikasi belum tersedia.</p>}
+          {role === "ADMIN" && <p className="mt-5 rounded-xl bg-slate-100 p-4 text-sm text-slate-700">Arsip baca saja. ADMIN tidak memiliki kewenangan menyetujui atau menandatangani surat.</p>}
+        </section>
+      </>}
+    </div>
+  </main>;
 }

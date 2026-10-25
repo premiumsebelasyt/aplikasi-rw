@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
 import { ambilDataWarga } from "@/lib/warga/data";
 
@@ -57,7 +58,7 @@ export default function RTPage() {
         return;
       }
       if (!["RT", "RW", "ADMIN"].includes(profile.role) || (profile.role === "RT" && !profile.rt)) {
-        const destination = profile.role === "RW" || profile.role === "ADMIN" ? "/" : profile.role === "BENDAHARA" ? "/kas" : profile.role === "WARGA" ? "/" : "/login";
+        const destination = profile.role === "RW" ? "/" : profile.role === "ADMIN" ? "/menu" : profile.role === "BENDAHARA" ? "/kas" : profile.role === "WARGA" ? "/" : "/login";
         router.replace(destination);
         return;
       }
@@ -81,7 +82,7 @@ export default function RTPage() {
           .from("surat")
           .select("id", { count: "exact", head: true })
           .eq("rt", rt)
-          .eq("status", "DRAFT") : { count: 0, error: null };
+          .eq("status", "MENUNGGU_RT") : { count: 0, error: null };
       if (!active) return;
       setRtAkun(rt || "01–06");
       setWarga(scopedWarga);
@@ -171,22 +172,8 @@ export default function RTPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] pb-10">
-      <header className="bg-emerald-900 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <p className="text-sm text-emerald-100">
-            Nuansa Indah Ciomas
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Data RT {rtAkun}
-          </h1>
-
-          <p className="mt-1 text-sm text-emerald-100">
-            RW 16 · Wilayah tugas RT {rtAkun}
-          </p>
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-10">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title={`Data RT ${rtAkun}`} subtitle={`Wilayah tugas RT ${rtAkun}`} />
 
       <div className="mx-auto max-w-xl px-4 py-5">
 

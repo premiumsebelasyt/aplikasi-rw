@@ -11,7 +11,7 @@ const roleHome: Record<Role, string> = {
   RT: "/rt",
   RW: "/",
   BENDAHARA: "/kas",
-  ADMIN: "/",
+  ADMIN: "/menu",
 };
 
 export function RoleGate({ children, allowedRoles }: { children: ReactNode; allowedRoles: Role[] }) {

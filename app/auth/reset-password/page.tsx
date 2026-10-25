@@ -10,6 +10,7 @@ export default function ResetPasswordPage() {
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -41,7 +42,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] px-4 py-8 text-slate-800 sm:py-12">
+    <main className="min-h-screen bg-[var(--background)] px-4 py-8 text-slate-800 sm:py-12">
       <div className="mx-auto max-w-lg">
         <Link href="/login" className="inline-flex min-h-10 items-center text-sm font-semibold text-emerald-800">← Kembali ke login</Link>
         <section className="mt-5 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-8">
@@ -51,7 +52,12 @@ export default function ResetPasswordPage() {
           {!ready ? <p className="mt-6 text-sm text-slate-500">Memeriksa tautan…</p> : !error && !message ? (
             <form onSubmit={submit} className="mt-6 space-y-4">
               <label className="block text-sm font-medium text-slate-700">Password baru
-                <input autoFocus required minLength={8} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 px-4 text-base outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
+                <span className="relative mt-1.5 block">
+                  <input autoFocus required minLength={8} type={showPassword ? "text" : "password"} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="min-h-12 w-full rounded-xl border border-slate-300 px-4 pr-14 text-base outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" />
+                  <button type="button" aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"} aria-pressed={showPassword} onClick={() => setShowPassword((visible) => !visible)} className="absolute right-1 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-lg text-slate-500 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[18px] w-[18px]"><path strokeLinecap="round" strokeLinejoin="round" d="M2.5 12s3.3-6 9.5-6 9.5 6 9.5 6-3.3 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+                  </button>
+                </span>
               </label>
               <button disabled={saving} className="min-h-12 w-full rounded-xl bg-emerald-800 px-4 font-semibold text-white disabled:opacity-60">{saving ? "Menyimpan…" : "Simpan password baru"}</button>
             </form>

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   try {
     const admin = createSupabaseAdmin();
-    let query = admin.from("profiles").select("id, role").eq("role", role);
+    let query = admin.from("profiles").select("id, role").eq("role", role).eq("aktif", true);
     query = role === "WARGA" ? query.eq("no_kk", identifier) : query.ilike("login_id", identifier);
     const { data: profile, error: profileError } = await query.maybeSingle();
     if (profileError) {

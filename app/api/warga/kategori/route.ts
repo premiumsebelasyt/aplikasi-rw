@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
+import { presentWargaCategories } from "@/lib/warga/category-canonical.mjs";
+import { isActiveProfile } from "@/lib/auth/profile-status.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +18,10 @@ export async function GET(request: Request) {
 
     const { data: profile, error: profileError } = await admin
       .from("profiles")
-      .select("role, rt")
+      .select("role, rt, no_kk, aktif")
       .eq("id", auth.user.id)
       .maybeSingle();
-    if (profileError || !profile || !["RT", "RW", "ADMIN"].includes(profile.role)) {
+    if (profileError || !profile || !isActiveProfile(profile) || !["WARGA", "RT", "RW", "ADMIN"].includes(profile.role)) {
       return NextResponse.json({ error: "Akses kategori warga tidak tersedia." }, { status: 403 });
     }
 
@@ -28,6 +30,9 @@ export async function GET(request: Request) {
       const rtScope = normalizeRtScope(profile.rt);
       if (!rtScope) return NextResponse.json({ error: "Akun RT belum memiliki wilayah tugas yang valid." }, { status: 403 });
       wargaQuery = wargaQuery.eq("rt", rtScope);
+    } else if (profile.role === "WARGA") {
+      if (!profile.no_kk) return NextResponse.json({ error: "Akun warga belum memiliki KK yang valid." }, { status: 403 });
+      wargaQuery = wargaQuery.eq("no_kk", profile.no_kk);
     }
     const [{ data: categories, error: categoryError }, { data: residents, error: residentError }] = await Promise.all([
       admin.from("kategori_warga").select("id, nama").order("nama", { ascending: true }),
@@ -36,7 +41,9 @@ export async function GET(request: Request) {
     if (categoryError || residentError) throw new Error("Data kategori warga belum dapat dimuat.");
 
     const ids = (residents ?? []).map((resident) => resident.id);
-    if (ids.length === 0) return NextResponse.json({ categories: categories ?? [], relations: [] });
+    if (ids.length === 0) {
+      return NextResponse.json(presentWargaCategories(categories ?? [], []));
+    }
 
     const { data: relations, error: relationError } = await admin
       .from("warga_kategori")
@@ -44,7 +51,7 @@ export async function GET(request: Request) {
       .in("warga_id", ids);
     if (relationError) throw new Error("Relasi kategori warga belum dapat dimuat.");
 
-    return NextResponse.json({ categories: categories ?? [], relations: relations ?? [] });
+    return NextResponse.json(presentWargaCategories(categories ?? [], relations ?? []));
   } catch (error) {
     console.error("Warga category lookup failed:", error instanceof Error ? error.message : "unknown_error");
     return NextResponse.json({ error: "Data kategori warga belum dapat dimuat." }, { status: 503 });

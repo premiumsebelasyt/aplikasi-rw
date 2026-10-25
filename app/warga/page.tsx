@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/ui/AppShell";
 import { ambilKategoriWarga } from "@/lib/warga/kategori";
 import { normalizeRtScope } from "@/lib/warga/rt-scope";
 import { ambilDataWarga } from "@/lib/warga/data";
@@ -240,22 +241,8 @@ export default function WargaPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] pb-10">
-      <header className="bg-emerald-900 px-5 py-6 text-white">
-        <div className="mx-auto max-w-xl">
-          <p className="text-sm text-emerald-100">
-            Nuansa Indah Ciomas
-          </p>
-
-          <h1 className="mt-1 text-2xl font-bold">
-            Data Warga
-          </h1>
-
-          <p className="mt-1 text-sm text-emerald-100">
-            RW 16 • RT 01–06
-          </p>
-        </div>
-      </header>
+    <main className="min-h-screen bg-[var(--background)] pb-10">
+      <PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Data Warga" subtitle="Wilayah RT 01–06" />
 
       <div className="mx-auto max-w-xl px-4 py-5">
 
@@ -371,7 +358,7 @@ export default function WargaPage() {
             Cari Nama / NIK
           </label>
 
-          <input
+          <input aria-label="Cari Nama / NIK"
             type="text"
             value={search}
             onChange={(e) =>

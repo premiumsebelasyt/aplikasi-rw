@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getCachedVerifiedProfile, getVerifiedCurrentProfile, updateCachedProfile } from "@/lib/auth/current-profile";
+import { PageHeader } from "@/components/ui/AppShell";
 
 export default function ProfilPage() {
   const router = useRouter();
@@ -82,12 +82,11 @@ export default function ProfilPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f7f4] px-4 py-8 text-slate-800 sm:py-12">
+    <main className="min-h-screen bg-[var(--background)] px-4 py-8 text-slate-800 sm:py-12">
       <div className="mx-auto max-w-lg">
-        <Link href="/pengaturan" className="inline-flex min-h-10 items-center text-sm font-semibold text-emerald-800">← Kembali ke Pengaturan</Link>
+        <div className="-mx-4 -mt-8 sm:-mx-8 sm:-mt-12"><PageHeader eyebrow="Nuansa Indah Ciomas · RW 16" title="Profil & keamanan" backHref="/pengaturan" /></div>
         <section className="mt-5 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-8">
           <p className="text-sm font-semibold text-emerald-800">Akun RW 16</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Profil & keamanan</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">Lengkapi identitas yang ditampilkan pada administrasi warga. Role akses dikelola administrator.</p>
 
           {loading ? <p className="mt-6 text-sm text-slate-500">Memuat profil…</p> : (

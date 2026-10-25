@@ -1,0 +1,2 @@
+export function prepareSuratCommand(role: string, body: unknown): { error: string; status: number } | { rpc: string; args: Record<string, unknown> };
+export function executeSuratCommand(input: { role: string; body: unknown; rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { code?: string } | null }> }): Promise<{ error: string; status: number; code?: string | null } | { success: true }>;
