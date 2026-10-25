@@ -17,6 +17,17 @@ test("RT reads residents only within the assigned RT scope", () => {
   assert.equal(canReadWarga({ role: "RT", profile: { rt: null }, warga: rt03Warga }), false);
 });
 
+test("RT01 and RT02 accounts cannot read each other's resident scope", () => {
+  const rt01 = { rt: "01", no_kk: null };
+  const rt02 = { rt: "02", no_kk: null };
+  const warga01 = { rt: "01", no_kk: "1101" };
+  const warga02 = { rt: "02", no_kk: "1102" };
+  assert.equal(canReadWarga({ role: "RT", profile: rt01, warga: warga01 }), true);
+  assert.equal(canReadWarga({ role: "RT", profile: rt01, warga: warga02 }), false);
+  assert.equal(canReadWarga({ role: "RT", profile: rt02, warga: warga02 }), true);
+  assert.equal(canReadWarga({ role: "RT", profile: rt02, warga: warga01 }), false);
+});
+
 test("WARGA reads only members of their own family by KK", () => {
   assert.equal(canReadWarga({ role: "WARGA", profile: { no_kk: "1111" }, warga: { no_kk: "1111" } }), true);
   assert.equal(canReadWarga({ role: "WARGA", profile: { no_kk: "1111" }, warga: { no_kk: "2222" } }), false);

@@ -3,29 +3,36 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-const genericMessage = "Jika data akun cocok, tautan pemulihan akan dikirim ke email terdaftar.";
-const allowedRoles = ["WARGA", "RT", "RW", "BENDAHARA", "ADMIN"] as const;
+const genericMessage = "Jika data akun warga cocok, tautan pemulihan akan dikirim ke email terdaftar.";
 
 export async function POST(request: Request) {
-  let body: { role?: string; identifier?: string; email?: string };
+  let body: { identifier?: unknown; email?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Permintaan tidak valid." }, { status: 400 });
   }
 
-  const role = body.role;
-  const identifier = body.identifier?.trim();
-  const email = body.email?.trim().toLowerCase();
-  if (!role || !allowedRoles.includes(role as (typeof allowedRoles)[number]) || !identifier || !email) {
-    return NextResponse.json({ error: "Jenis akun, ID, dan email wajib diisi." }, { status: 400 });
+  const identifier = typeof body.identifier === "string" ? body.identifier.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!identifier || identifier.length > 64 || !email || email.length > 254) {
+    return NextResponse.json({ error: "Username/Nomor KK dan email wajib diisi." }, { status: 400 });
   }
+
+  // Internal staff aliases do not have mailboxes. Keep the response generic and
+  // direct staff to their administrator instead of sending reset links to .invalid.
+  if (!/^\d{16}$/.test(identifier)) return NextResponse.json({ message: genericMessage });
 
   try {
     const admin = createSupabaseAdmin();
-    let query = admin.from("profiles").select("id, role").eq("role", role).eq("aktif", true);
-    query = role === "WARGA" ? query.eq("no_kk", identifier) : query.ilike("login_id", identifier);
-    const { data: profile, error: profileError } = await query.maybeSingle();
+    const { data: profile, error: profileError } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("role", "WARGA")
+      .eq("aktif", true)
+      .eq("no_kk", identifier)
+      .maybeSingle();
+
     if (profileError) {
       console.error("Password recovery lookup failed:", profileError.code);
       return NextResponse.json({ error: "Layanan pemulihan belum siap." }, { status: 503 });
@@ -57,7 +64,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ message: genericMessage });
   } catch (error) {
-    console.error("Password recovery service unavailable:", error instanceof Error ? error.message : "unknown_error");
+    console.error("Password recovery service unavailable:", error instanceof Error ? error.name : "unknown_error");
     return NextResponse.json({ error: "Layanan pemulihan belum dikonfigurasi." }, { status: 503 });
   }
 }

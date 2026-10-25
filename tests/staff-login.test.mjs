@@ -1,37 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { staffAuthEmail } from "../lib/auth/staff-login.ts";
+import { normalizeStaffAlias, staffAuthEmail, staffLoginIdentity, staffProfileMatches } from "../lib/auth/staff-login.ts";
 
-test("staff login IDs are normalized to their internal Auth address", () => {
-  const stagingUrl = "https://ciaxjgbpjhdhoatvqgda.supabase.co";
-  assert.equal(staffAuthEmail("  KETUA-RT01 ", stagingUrl), "ketua-rt01@rw16.mail");
-  assert.equal(staffAuthEmail("  KETUA-RT01@RW16.MAIL ", stagingUrl), "ketua-rt01@rw16.mail");
-  for (const loginId of [
-    "ketua-rt01", "ketua-rt02", "ketua-rt03", "ketua-rt04", "ketua-rt05", "ketua-rt06",
-    "bendahara-rw16", "ketua-rw16", "admin-rw16",
-  ]) {
-    assert.equal(staffAuthEmail(loginId, stagingUrl), `${loginId}@rw16.mail`);
+const productionUrl = "https://qspglnzoayczbpgmhsnh.supabase.co";
+const stagingUrl = "https://ciaxjgbpjhdhoatvqgda.supabase.co";
+const expected = [
+  ["ketua-rt01", "RT", "01"],
+  ["ketua-rt02", "RT", "02"],
+  ["ketua-rt03", "RT", "03"],
+  ["ketua-rt04", "RT", "04"],
+  ["ketua-rt05", "RT", "05"],
+  ["ketua-rt06", "RT", "06"],
+  ["bendahara-rw16", "BENDAHARA", null],
+  ["ketua-rw16", "RW", null],
+  ["admin-rw16", "ADMIN", null],
+];
+
+test("all nine known Production staff usernames map to their Auth emails and role scopes", () => {
+  for (const [alias, role, rt] of expected) {
+    assert.deepEqual(staffLoginIdentity(alias, productionUrl), {
+      alias,
+      role,
+      rt,
+      email: `${alias}@rw16.invalid`,
+    });
   }
 });
 
-test("production aliases map to existing Auth addresses without changing Auth accounts", () => {
-  const productionUrl = "https://qspglnzoayczbpgmhsnh.supabase.co";
-  const aliases = [
-    "ketua-rt01", "ketua-rt02", "ketua-rt03", "ketua-rt04", "ketua-rt05", "ketua-rt06",
-    "bendahara-rw16", "ketua-rw16", "admin-rw16",
-  ];
-  for (const alias of aliases) {
-    assert.equal(staffAuthEmail(alias, productionUrl), `${alias}@rw16.invalid`);
-  }
-  assert.equal(staffAuthEmail("ketua-rt01@rw16.mail", productionUrl), "ketua-rt01@rw16.invalid");
-  assert.equal(staffAuthEmail("ketua-rt01@rw16.invalid", productionUrl), "ketua-rt01@rw16.invalid");
-  assert.equal(staffAuthEmail("admin-rw16", "https://unknown.supabase.co"), null);
-  assert.equal(staffAuthEmail("admin-rw16", "http://qspglnzoayczbpgmhsnh.supabase.co"), null);
+test("staging uses its existing internal Auth suffix while Production keeps .invalid", () => {
+  assert.equal(staffAuthEmail("ketua-rt01", stagingUrl), "ketua-rt01@rw16.mail");
+  assert.equal(staffAuthEmail("ketua-rt01", productionUrl), "ketua-rt01@rw16.invalid");
 });
 
-test("staff login IDs reject malformed values and email injection", () => {
-  const stagingUrl = "https://ciaxjgbpjhdhoatvqgda.supabase.co";
-  for (const value of ["", "ab", "user@example.com", "admin@@rw16.mail", "admin+test", "../admin", "with space", "a".repeat(33)]) {
-    assert.equal(staffAuthEmail(value, stagingUrl), null, value);
+test("usernames normalize whitespace, case, and known alias suffixes", () => {
+  assert.equal(normalizeStaffAlias("  KETUA-RT01  "), "ketua-rt01");
+  assert.equal(normalizeStaffAlias("  KETUA-RT01@RW16.MAIL  "), "ketua-rt01");
+  assert.equal(staffAuthEmail("  KETUA-RT01@RW16.INVALID  ", productionUrl), "ketua-rt01@rw16.invalid");
+});
+
+test("unknown aliases and unsafe project URLs are rejected", () => {
+  for (const value of ["", "ab", "user@example.com", "admin+test", "../admin", "ketua-rt07", "root"]) {
+    assert.equal(staffLoginIdentity(value, productionUrl), null, value);
   }
+  assert.equal(staffLoginIdentity("admin-rw16", "https://unknown.supabase.co"), null);
+  assert.equal(staffLoginIdentity("admin-rw16", "http://qspglnzoayczbpgmhsnh.supabase.co"), null);
+});
+
+test("verified database profile role and RT scope must match the staff username", () => {
+  const rt01 = staffLoginIdentity("ketua-rt01", productionUrl);
+  assert.equal(staffProfileMatches(rt01, { role: "RT", rt: "01", aktif: true }), true);
+  assert.equal(staffProfileMatches(rt01, { role: "RT", rt: "02", aktif: true }), false);
+  assert.equal(staffProfileMatches(rt01, { role: "RW", rt: null, aktif: true }), false);
+  assert.equal(staffProfileMatches(rt01, { role: "RT", rt: "01", aktif: false }), false);
+  assert.equal(staffProfileMatches(staffLoginIdentity("ketua-rw16", productionUrl), { role: "RW", rt: null, aktif: true }), true);
 });

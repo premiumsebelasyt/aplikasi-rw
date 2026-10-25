@@ -38,7 +38,7 @@ test("a profile is active only when the database value is boolean true", () => {
 
 test("server entry points select and enforce the active profile flag", async () => {
   const files = [
-    ["../app/api/auth/sign-in/route.ts", /select\("id, role, aktif, no_kk"\)[\s\S]*?isActiveProfile\(verifiedProfile\)[\s\S]*?verifiedProfile\.role !== role/],
+    ["../app/api/auth/sign-in/route.ts", /select\("id, role, rt, aktif, no_kk"\)[\s\S]*?isActiveProfile\(verifiedProfile\)[\s\S]*?staffProfileMatches\(staffIdentity, verifiedProfile\)/],
     ["../app/api/warga/route.ts", /select\("role, rt, aktif"\)[\s\S]*?isActiveProfile\(profile\)/],
     ["../app/api/warga/kategori/route.ts", /select\("role, rt, no_kk, aktif"\)[\s\S]*?isActiveProfile\(profile\)/],
     ["../app/api/auth/reset-password/route.ts", /from\("profiles"\)[\s\S]*?eq\("aktif", true\)/],
@@ -51,7 +51,7 @@ test("server entry points select and enforce the active profile flag", async () 
 
 test("staff sign-in verifies its profile with the authenticated user JWT", async () => {
   const route = await readFile(new URL("../app/api/auth/sign-in/route.ts", import.meta.url), "utf8");
-  assert.match(route, /if \(role === "WARGA"\) \{\s+const admin = createSupabaseAdmin\(\);/);
+  assert.match(route, /if \(isWarga\) \{\s+const admin = createSupabaseAdmin\(\);/);
   assert.equal((route.match(/createSupabaseAdmin\(\)/g) ?? []).length, 1);
   assert.match(route, /createSupabaseUserClient\(session\.session\.access_token\)[\s\S]*?from\("profiles"\)[\s\S]*?eq\("id", session\.user\.id\)/);
 });
